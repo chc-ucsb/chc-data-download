@@ -505,7 +505,20 @@ class Downloader:
         target_parts = _decoded_path_parts(target.path)
         if target_parts[: len(base_parts)] != base_parts:
             raise DownloadError(f"local path is outside selected URL subtree: {url}")
-        relative = target_parts[len(base_parts) :]
+        date_directory = next(
+            (
+                index
+                for index, component in enumerate(target_parts[:-1])
+                if re.fullmatch(r"(?:19|20)\d{2}", component)
+            ),
+            None,
+        )
+        if date_directory is not None:
+            # Keep yyyy/mm/dd context when a leaf URL would otherwise flatten
+            # repeated forecast filenames into the same destination directory.
+            relative = target_parts[date_directory:]
+        else:
+            relative = target_parts[len(base_parts) :]
         if not relative:
             relative = [target_parts[-1]]
         current = self.dest

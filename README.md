@@ -148,6 +148,39 @@ structural directories when starting from a parent URL, but choosing the
 narrowest useful URL avoids duplicate representations and unexpectedly large
 download plans.
 
+### Forecast Initialization Directories
+
+Some CHC products use nested initialization-date directories such as
+`yyyy/mm/dd/`. CHIRPS-GEFS v3 is organized this way:
+
+```text
+global/2026/08/01/c3g_2026.08.02.tif
+global/2026/08/02/c3g_2026.08.02.tif
+```
+
+The repeated filename is safe because the downloader preserves the date
+directories in the destination. When a date filter is active, the directory
+date is the initialization date, so selecting August 1 downloads all lead-time
+files in the August 1 run. The date in the filename is not used to select a
+different initialization run.
+
+For example, this PowerShell command previews the August 1 initialization run:
+
+```powershell
+uv run download-chc-data `
+  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/2026/08/ `
+  --suffix .tif `
+  --start-date 2026-08-01 `
+  --end-date 2026-08-01 `
+  --dest .\data\chirps-gefs-v3 `
+  --dry-run
+```
+
+Downloaded files are stored under paths such as
+`data/chirps-gefs-v3/2026/08/01/c3g_2026.08.02.tif`. Start at `global/` or a
+month-level directory when collecting multiple initialization runs so their
+date context remains visible in the output.
+
 ## Install
 
 ```bash

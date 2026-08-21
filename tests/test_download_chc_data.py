@@ -158,6 +158,28 @@ class DownloaderTests(unittest.TestCase):
             plan = downloader.build_plan()
             self.assertEqual([item.url for item in plan], [file_url])
 
+    def test_dated_directories_preserve_repeated_filenames(self):
+        base = "https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/"
+        first = base + "2026/08/01/c3g_2026.08.02.tif"
+        second = base + "2026/08/02/c3g_2026.08.02.tif"
+        with tempfile.TemporaryDirectory() as temporary:
+            downloader = FakeDownloader(self.args(base, temporary), {})
+            first_path = downloader.local_path(first)
+            second_path = downloader.local_path(second)
+            self.assertEqual(first_path, Path(temporary) / "2026/08/01/c3g_2026.08.02.tif")
+            self.assertEqual(second_path, Path(temporary) / "2026/08/02/c3g_2026.08.02.tif")
+            self.assertNotEqual(first_path, second_path)
+
+    def test_leaf_url_preserves_date_directory_context(self):
+        base = "https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/2026/08/01/"
+        url = base + "c3g_2026.08.02.tif"
+        with tempfile.TemporaryDirectory() as temporary:
+            downloader = FakeDownloader(self.args(base, temporary), {})
+            self.assertEqual(
+                downloader.local_path(url),
+                Path(temporary) / "2026/08/01/c3g_2026.08.02.tif",
+            )
+
     def test_suffix_filter_is_applied_during_planning(self):
         base = "https://data.chc.ucsb.edu/products/CHIRP-v3.0/daily/global/"
         html = """
