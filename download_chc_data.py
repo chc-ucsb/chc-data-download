@@ -30,6 +30,7 @@ import requests
 
 HOST = "data.chc.ucsb.edu"
 ROOTS = ("/products/", "/experimental/")
+EXCLUDED_BRANCHES = {"created"}
 DEFAULT_UA = (
     "Mozilla/5.0 (compatible; download-chc-data/1.0; polite recursive "
     "download; contact grit-ai@ucsb.edu)"
@@ -458,6 +459,7 @@ class Downloader:
     def build_plan(self) -> list[PlanEntry]:
         plan: list[PlanEntry] = []
         queue = [self.base_url]
+        base_parts = _decoded_path_parts(urlsplit(self.base_url).path)
         visited: set[str] = set()
         while queue:
             directory = queue.pop()
@@ -488,6 +490,10 @@ class Downloader:
                 except DownloadError:
                     continue
                 relative = unquote(urlsplit(full).path)
+                target_parts = _decoded_path_parts(urlsplit(full).path)
+                relative_parts = target_parts[len(base_parts) :]
+                if entry.is_directory and relative_parts and relative_parts[0].lower() in EXCLUDED_BRANCHES:
+                    continue
                 cadence = infer_cadence(relative)
                 if entry.is_directory:
                     # Structural directories such as byYear/ and byMonth/ do
