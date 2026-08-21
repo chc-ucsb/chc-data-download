@@ -59,33 +59,60 @@ uv run download-chc-data --help
 
 ### Step 3: Preview a CHIRPS v3 download
 
-The following example selects daily CHIRPS v3 NetCDF files for 2023 and
-prints the download plan without transferring anything:
+The following example selects daily CHIRPS v3 NetCDF files from January 1
+through January 10, 2023, and prints the download plan without transferring
+anything.
+
+On macOS or Linux, use the Bash form:
 
 ```bash
 uv run download-chc-data \
   --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/netcdf/ \
   --suffix .nc \
-  --start-year 2023 \
-  --end-year 2023 \
+  --start-date 2023-01-01 \
+  --end-date 2023-01-10 \
   --dest ./data/chirps3-daily \
   --dry-run
 ```
 
-Review the listed URLs and the planned file count before downloading. Change
-`2023` to another year, or use `--start-date` and `--end-date` for an exact
-date range.
+On Windows PowerShell, use a backtick at the end of each continued line. Do
+not use a backslash; PowerShell passes it to the program as an argument:
+
+```powershell
+uv run download-chc-data `
+  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/netcdf/ `
+  --suffix .nc `
+  --start-date 2023-01-01 `
+  --end-date 2023-01-10 `
+  --dest ./data/chirps3-daily `
+  --dry-run
+```
+
+You can also put the entire PowerShell command on one line. Review the listed
+URLs and planned file count before downloading. Change the dates for a
+different interval, or use `--start-year` and `--end-year` for whole years.
 
 ### Step 4: Download the files
 
-Run the same command without `--dry-run`:
+After reviewing the plan, run the same Bash command without `--dry-run`:
 
 ```bash
 uv run download-chc-data \
   --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/netcdf/ \
   --suffix .nc \
-  --start-year 2023 \
-  --end-year 2023 \
+  --start-date 2023-01-01 \
+  --end-date 2023-01-10 \
+  --dest ./data/chirps3-daily
+```
+
+The PowerShell form is:
+
+```powershell
+uv run download-chc-data `
+  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/netcdf/ `
+  --suffix .nc `
+  --start-date 2023-01-01 `
+  --end-date 2023-01-10 `
   --dest ./data/chirps3-daily
 ```
 
@@ -104,6 +131,9 @@ uv sync
 ## Examples
 
 Choose a URL at the narrowest useful directory and always choose a destination:
+
+The multiline examples in this section use Bash syntax. In PowerShell,
+replace each trailing `\` with a backtick, or paste the command on one line.
 
 ```bash
 uv run download-chc-data \
