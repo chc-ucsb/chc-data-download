@@ -286,6 +286,34 @@ class DownloaderTests(unittest.TestCase):
             plan = downloader.build_plan()
             self.assertEqual([item.url for item in plan], [base + "rain.nc"])
 
+    def test_filename_pattern_filters_basename_and_composes_with_suffix(self):
+        base = "https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/"
+        branch = base + "c3g_2026/"
+        html = (
+            '<table><tr><td><a href="c3g_2026.01.01.nc">c3g_2026.01.01.nc</a></td>'
+            '<td>1 B</td></tr>'
+            '<tr><td><a href="rain.nc">rain.nc</a></td><td>1 B</td></tr>'
+            '<tr><td><a href="other.tif">other.tif</a></td><td>1 B</td></tr>'
+            '<tr><td><a href="c3g_2026/">c3g_2026/</a></td><td>-</td></tr></table>'
+        )
+        branch_html = '<table><tr><td><a href="other.nc">other.nc</a></td><td>1 B</td></tr></table>'
+        with tempfile.TemporaryDirectory() as temporary:
+            args = parse_args([
+                "--url", base, "--dest", temporary, "--suffix", ".nc",
+                "--pattern", "c3g_*", "--pattern", "rain*.nc",
+                "--delay", "0", "--jitter", "0",
+            ])
+            responses = {
+                base: FakeResponse(html.encode(), content_type="text/html", url=base),
+                branch: FakeResponse(branch_html.encode(), content_type="text/html", url=branch),
+            }
+            downloader = FakeDownloader(args, responses)
+            plan = downloader.build_plan()
+            self.assertCountEqual(
+                [item.url for item in plan],
+                [base + "c3g_2026.01.01.nc", base + "rain.nc"],
+            )
+
     def test_large_plan_requires_explicit_yes(self):
         with tempfile.TemporaryDirectory() as temporary:
             args = self.args("https://data.chc.ucsb.edu/products/CHIRP-v3.0/", temporary)

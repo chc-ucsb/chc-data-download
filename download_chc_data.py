@@ -22,6 +22,7 @@ import time
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from email.utils import parsedate_to_datetime
+from fnmatch import fnmatchcase
 from html.parser import HTMLParser
 from pathlib import Path
 from urllib.parse import unquote, urljoin, urlsplit, urlunsplit
@@ -142,6 +143,10 @@ def format_bytes(value: int) -> str:
     if value < 1024**3:
         return f"{value / 1024**2:.1f} MiB"
     return f"{value / 1024**3:.1f} GiB"
+
+
+def matches_filename(filename: str, patterns: tuple[str, ...]) -> bool:
+    return not patterns or any(fnmatchcase(filename.casefold(), pattern) for pattern in patterns)
 
 
 def parse_index(html: str, page_url: str) -> list[IndexEntry]:
@@ -377,6 +382,7 @@ class Downloader:
         self.dest = Path(args.dest).expanduser().resolve()
         self.selector = DateSelector(args.start_date, args.end_date, args.include_undated)
         self.suffixes = tuple(args.suffixes)
+        self.patterns = tuple(args.patterns)
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": args.user_agent, "Accept-Encoding": "identity"})
         self.downloaded = 0
@@ -486,8 +492,10 @@ class Downloader:
                     self.direct_file = True
                     relative = unquote(urlsplit(self.base_url).path)
                     cadence = infer_cadence(relative)
+                    filename = _decoded_path_parts(urlsplit(self.base_url).path)[-1]
                     if (
                         (not self.suffixes or relative.lower().endswith(self.suffixes))
+                        and matches_filename(filename, self.patterns)
                         and self.selector.matches(relative, cadence)
                     ):
                         plan.append(PlanEntry(self.base_url, None, relative, cadence))
@@ -519,6 +527,8 @@ class Downloader:
                     if not self.selector.matches(relative, cadence):
                         continue
                     if self.suffixes and not relative.lower().endswith(self.suffixes):
+                        continue
+                    if not matches_filename(target_parts[-1], self.patterns):
                         continue
                     plan.append(PlanEntry(full, entry.size, relative, cadence))
                     if self.args.max_files is not None and len(plan) > self.args.max_files:
@@ -661,6 +671,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=[],
         help="only download files ending with this suffix; repeatable (e.g. .nc)",
     )
+    parser.add_argument(
+        "--pattern",
+        dest="patterns",
+        action="append",
+        default=[],
+        help="only download filenames matching this glob; repeatable",
+    )
     parser.add_argument("--start-year", type=parse_year)
     parser.add_argument("--end-year", type=parse_year)
     parser.add_argument("--start-date", type=parse_date_arg)
@@ -696,6 +713,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         suffix.lower() if suffix.startswith(".") else f".{suffix.lower()}"
         for suffix in args.suffixes
     )
+    args.patterns = tuple(pattern.casefold() for pattern in args.patterns)
     args.excluded_paths = tuple(args.excluded_paths)
     if args.start_year is not None and args.start_date is not None:
         parser.error("use either --start-year or --start-date, not both")

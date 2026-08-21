@@ -267,6 +267,30 @@ uv run download-chc-data --url URL --dest ./data --suffix .nc --dry-run
 `.nc`, `.tif`, `.bil`, `.nc.gz`, or `.zip`. Without it, all advertised files
 are eligible.
 
+Use repeatable `--pattern` options for case-insensitive filename glob matching.
+Patterns match the filename, not its parent directories. Quote wildcard
+patterns in the shell:
+
+```powershell
+uv run download-chc-data `
+  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/2026/01/ `
+  --pattern "c3g_*" `
+  --dest .\data\chirps-gefs-v3
+
+uv run download-chc-data `
+  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/2026/01/ `
+  --pattern "*.tif" `
+  --dest .\data\chirps-gefs-v3
+
+uv run download-chc-data `
+  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/2026/01/ `
+  --pattern "c3g_*2026*.tif" `
+  --dest .\data\chirps-gefs-v3
+```
+
+Repeated patterns are alternatives. If both `--suffix` and `--pattern` are
+provided, a file must satisfy both filters.
+
 Date filtering is cadence-aware from the URL path. The downloader recognizes
 `daily`, `pentad(s)`, `dekad(s)`, `monthly`, `2-monthly` through `6-monthly`,
 and annual/year directories. It interprets common CHC forms including:
