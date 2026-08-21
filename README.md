@@ -122,6 +122,25 @@ files atomically. Use `--overwrite` only when an existing file must be
 replaced. The `data/` directory is ignored by Git so downloaded artifacts are
 not accidentally committed.
 
+The `--dest` path is resolved relative to the directory where the terminal
+command is run. For repeat downloads, either run the command from the repository
+root:
+
+```powershell
+cd C:\Users\wturner\chc-data-download
+uv run download-chc-data `
+  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/2026/ `
+  --suffix .tif `
+  --start-date 2026-01-01 `
+  --end-date 2026-01-10 `
+  --dest .\data\chirps3-daily-tifs
+```
+
+Or, if the terminal is already inside `data\chirps3-daily-tifs`, use
+`--dest .`. An absolute destination path also works from any directory. The
+program prints `= skip` only when the file is found at that destination, its
+size matches the server's size, and `--overwrite` was not requested.
+
 The CHIRPS v3 daily NetCDF branch is organized separately under `netcdf/byMonth/`
 and `netcdf/byYear/`. Use `byMonth/` for monthly files containing daily slices,
 or `byYear/` for larger annual files. The downloader can traverse these
