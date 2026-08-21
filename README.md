@@ -5,6 +5,96 @@ CHC data service. The URL supplies the product, version, cadence, region,
 variable, and format branch. The downloader follows only advertised Apache
 links, filters files before downloading, and publishes files atomically.
 
+## Quick Start: CHIRPS v3 Daily
+
+### Step 0: Open the repository
+
+1. Open the repository page: <https://github.com/chc-ucsb/chc-data-download>.
+2. Select **Code**, choose **HTTPS**, and select **Copy** to copy the repository URL.
+3. Open a terminal. On Windows, open PowerShell; on macOS or Linux, open Terminal.
+4. Clone the repository and enter its directory:
+
+   ```bash
+   git clone https://github.com/chc-ucsb/chc-data-download.git
+   cd chc-data-download
+   ```
+
+If you already cloned the repository, open a terminal in that directory instead.
+
+### Step 1: Install uv
+
+Check whether `uv` is installed:
+
+```bash
+uv --version
+```
+
+If the command is not found, install `uv` using the official installer. On
+macOS or Linux, run:
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+In Windows PowerShell, run:
+
+```powershell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+```
+
+Close and reopen the terminal after installation, then check `uv --version`
+again. See the [official uv installation guide](https://docs.astral.sh/uv/getting-started/installation/)
+for other installation methods.
+
+### Step 2: Install the project
+
+From the repository directory, run:
+
+```bash
+uv sync
+uv run download-chc-data --help
+```
+
+`uv sync` creates the project environment and installs the locked dependencies.
+
+### Step 3: Preview a CHIRPS v3 download
+
+The following example selects daily CHIRPS v3 NetCDF files for 2023 and
+prints the download plan without transferring anything:
+
+```bash
+uv run download-chc-data \
+  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/netcdf/ \
+  --suffix .nc \
+  --start-year 2023 \
+  --end-year 2023 \
+  --dest ./data/chirps3-daily \
+  --dry-run
+```
+
+Review the listed URLs and the planned file count before downloading. Change
+`2023` to another year, or use `--start-date` and `--end-date` for an exact
+date range.
+
+### Step 4: Download the files
+
+Run the same command without `--dry-run`:
+
+```bash
+uv run download-chc-data \
+  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/netcdf/ \
+  --suffix .nc \
+  --start-year 2023 \
+  --end-year 2023 \
+  --dest ./data/chirps3-daily
+```
+
+Files are saved under `data/chirps3-daily`. The downloader uses one delayed
+connection, skips existing files when their sizes match, and writes completed
+files atomically. Use `--overwrite` only when an existing file must be
+replaced. The `data/` directory is ignored by Git so downloaded artifacts are
+not accidentally committed.
+
 ## Install
 
 ```bash
