@@ -208,6 +208,57 @@ NetCDF representation. Repeat the option to exclude multiple branches. To
 download the `created/` branch by itself, select its URL directly rather than
 excluding it.
 
+### Daily Forecast Top-Off
+
+To add the newest CHIRPS-GEFS forecast each day, use the current date as both
+the start and end date. First preview the plan in Windows PowerShell:
+
+```powershell
+$today = Get-Date -Format "yyyy-MM-dd"
+uv run download-chc-data `
+  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/ `
+  --pattern "c3g_*" `
+  --exclude created `
+  --start-date $today `
+  --end-date $today `
+  --dest .\data\chirps-gefs-v3 `
+  --dry-run
+```
+
+After reviewing the plan, run the same command without `--dry-run`:
+
+```powershell
+$today = Get-Date -Format "yyyy-MM-dd"
+uv run download-chc-data `
+  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/ `
+  --pattern "c3g_*" `
+  --exclude created `
+  --start-date $today `
+  --end-date $today `
+  --dest .\data\chirps-gefs-v3
+```
+
+On macOS or Linux, use the same workflow with the shell date command:
+
+```bash
+today=$(date +%F)
+uv run download-chc-data \
+  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/ \
+  --pattern 'c3g_*' \
+  --exclude created \
+  --start-date "$today" \
+  --end-date "$today" \
+  --dest ./data/chirps-gefs-v3
+```
+
+Run these commands from the repository root, or use an absolute destination.
+The date selects the forecast initialization directory, so all lead-time files
+for that run are downloaded under `data/chirps-gefs-v3/YYYY/MM/DD/`. A persistent
+destination lets later runs skip same-size files. Schedule the command after
+the CHC daily publication time; if that date directory is not published yet,
+the command reports an error rather than selecting a different date. Use
+`--overwrite` only when intentionally refreshing an existing run.
+
 ## Install
 
 ```bash
