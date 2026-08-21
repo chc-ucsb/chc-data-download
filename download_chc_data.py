@@ -481,11 +481,16 @@ class Downloader:
                     continue
                 relative = unquote(urlsplit(full).path)
                 cadence = infer_cadence(relative)
-                if not self.selector.matches(relative, cadence):
-                    continue
                 if entry.is_directory:
+                    # Structural directories such as byYear/ and byMonth/ do
+                    # not carry a date, so keep traversing them. Date-bearing
+                    # directories can still be pruned before fetching them.
+                    if extract_intervals(relative, cadence) and not self.selector.matches(relative, cadence):
+                        continue
                     queue.append(full if full.endswith("/") else full + "/")
                 else:
+                    if not self.selector.matches(relative, cadence):
+                        continue
                     if self.suffixes and not relative.lower().endswith(self.suffixes):
                         continue
                     plan.append(PlanEntry(full, entry.size, relative, cadence))

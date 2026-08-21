@@ -136,6 +136,28 @@ class DownloaderTests(unittest.TestCase):
             plan = downloader.build_plan()
             self.assertEqual([item.url for item in plan], [base + "2024/day.tif"])
 
+    def test_plan_traverses_undated_structural_directories(self):
+        base = "https://data.chc.ucsb.edu/products/CHIRP-v3.0/daily/"
+        branch = base + "byYear/"
+        file_url = branch + "chirp-v3.0.sat.2024.days_p05.tif"
+        html = '<table><tr><td><a href="byYear/">byYear/</a></td><td>-</td></tr></table>'
+        file_html = (
+            '<table><tr><td><a href="chirp-v3.0.sat.2024.days_p05.tif">'
+            'chirp-v3.0.sat.2024.days_p05.tif</a></td><td>1 B</td></tr></table>'
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            args = parse_args([
+                "--url", base, "--dest", temporary, "--suffix", ".tif",
+                "--start-year", "2024", "--delay", "0", "--jitter", "0",
+            ])
+            responses = {
+                base: FakeResponse(html.encode(), content_type="text/html", url=base),
+                branch: FakeResponse(file_html.encode(), content_type="text/html", url=branch),
+            }
+            downloader = FakeDownloader(args, responses)
+            plan = downloader.build_plan()
+            self.assertEqual([item.url for item in plan], [file_url])
+
     def test_suffix_filter_is_applied_during_planning(self):
         base = "https://data.chc.ucsb.edu/products/CHIRP-v3.0/daily/global/"
         html = """

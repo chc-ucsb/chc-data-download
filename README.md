@@ -5,7 +5,7 @@ CHC data service. The URL supplies the product, version, cadence, region,
 variable, and format branch. The downloader follows only advertised Apache
 links, filters files before downloading, and publishes files atomically.
 
-## Quick Start: CHIRPS v3 Daily
+## Quick Start: CHIRPS v3 Daily TIFFs
 
 ### Step 0: Open the repository
 
@@ -59,19 +59,19 @@ uv run download-chc-data --help
 
 ### Step 3: Preview a CHIRPS v3 download
 
-The following example selects daily CHIRPS v3 NetCDF files from January 1
-through January 10, 2023, and prints the download plan without transferring
+The following example selects daily CHIRPS v3 TIFF files from January 1
+through January 10, 2026, and prints the download plan without transferring
 anything.
 
 On macOS or Linux, use the Bash form:
 
 ```bash
 uv run download-chc-data \
-  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/netcdf/ \
-  --suffix .nc \
-  --start-date 2023-01-01 \
-  --end-date 2023-01-10 \
-  --dest ./data/chirps3-daily \
+  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/2026/ \
+  --suffix .tif \
+  --start-date 2026-01-01 \
+  --end-date 2026-01-10 \
+  --dest ./data/chirps3-daily-tifs \
   --dry-run
 ```
 
@@ -80,11 +80,11 @@ not use a backslash; PowerShell passes it to the program as an argument:
 
 ```powershell
 uv run download-chc-data `
-  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/netcdf/ `
-  --suffix .nc `
-  --start-date 2023-01-01 `
-  --end-date 2023-01-10 `
-  --dest ./data/chirps3-daily `
+  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/2026/ `
+  --suffix .tif `
+  --start-date 2026-01-01 `
+  --end-date 2026-01-10 `
+  --dest ./data/chirps3-daily-tifs `
   --dry-run
 ```
 
@@ -98,29 +98,36 @@ After reviewing the plan, run the same Bash command without `--dry-run`:
 
 ```bash
 uv run download-chc-data \
-  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/netcdf/ \
-  --suffix .nc \
-  --start-date 2023-01-01 \
-  --end-date 2023-01-10 \
-  --dest ./data/chirps3-daily
+  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/2026/ \
+  --suffix .tif \
+  --start-date 2026-01-01 \
+  --end-date 2026-01-10 \
+  --dest ./data/chirps3-daily-tifs
 ```
 
 The PowerShell form is:
 
 ```powershell
 uv run download-chc-data `
-  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/netcdf/ `
-  --suffix .nc `
-  --start-date 2023-01-01 `
-  --end-date 2023-01-10 `
-  --dest ./data/chirps3-daily
+  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/2026/ `
+  --suffix .tif `
+  --start-date 2026-01-01 `
+  --end-date 2026-01-10 `
+  --dest ./data/chirps3-daily-tifs
 ```
 
-Files are saved under `data/chirps3-daily`. The downloader uses one delayed
+Files are saved under `data/chirps3-daily-tifs`. The downloader uses one delayed
 connection, skips existing files when their sizes match, and writes completed
 files atomically. Use `--overwrite` only when an existing file must be
 replaced. The `data/` directory is ignored by Git so downloaded artifacts are
 not accidentally committed.
+
+The CHIRPS v3 daily NetCDF branch is organized separately under `netcdf/byMonth/`
+and `netcdf/byYear/`. Use `byMonth/` for monthly files containing daily slices,
+or `byYear/` for larger annual files. The downloader can traverse these
+structural directories when starting from a parent URL, but choosing the
+narrowest useful URL avoids duplicate representations and unexpectedly large
+download plans.
 
 ## Install
 
@@ -144,11 +151,12 @@ uv run download-chc-data \
   --dest ./data/chirp-v3-daily
 ```
 
-Filter CHIRPS NetCDF files or CHIRPS-GEFS TIFFs with the same interface:
+Filter CHIRPS NetCDF files or CHIRPS-GEFS TIFFs with the same interface. For
+monthly CHIRPS NetCDF files, use the explicit `byMonth/` branch:
 
 ```bash
 uv run download-chc-data \
-  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/netcdf/ \
+  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/netcdf/byMonth/ \
   --suffix .nc \
   --start-year 2022 --end-year 2024 \
   --dest ./data/chirps-netcdf
