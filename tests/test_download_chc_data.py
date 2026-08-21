@@ -164,7 +164,47 @@ class DownloaderTests(unittest.TestCase):
             plan = downloader.build_plan()
             self.assertEqual([item.url for item in plan], [file_url])
 
-    def test_parent_plan_excludes_created_branch(self):
+    def test_parent_plan_includes_created_branch(self):
+        base = "https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/"
+        year = base + "2026/"
+        created = base + "created/"
+        html = (
+            '<table><tr><td><a href="2026/">2026/</a></td><td>-</td></tr>'
+            '<tr><td><a href="created/">created/</a></td><td>-</td></tr></table>'
+        )
+        year_html = (
+            '<table><tr><td><a href="day.tif">day.tif</a></td>'
+            '<td>1 B</td></tr></table>'
+        )
+        created_html = (
+            '<table><tr><td><a href="2026/">2026/</a></td><td>-</td></tr></table>'
+        )
+        created_year = created + "2026/"
+        created_year_html = (
+            '<table><tr><td><a href="data.tif">data.tif</a></td>'
+            '<td>1 B</td></tr></table>'
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            args = parse_args([
+                "--url", base, "--dest", temporary, "--suffix", ".tif",
+                "--start-year", "2026", "--delay", "0", "--jitter", "0",
+            ])
+            responses = {
+                base: FakeResponse(html.encode(), content_type="text/html", url=base),
+                year: FakeResponse(year_html.encode(), content_type="text/html", url=year),
+                created: FakeResponse(created_html.encode(), content_type="text/html", url=created),
+                created_year: FakeResponse(
+                    created_year_html.encode(), content_type="text/html", url=created_year
+                ),
+            }
+            downloader = FakeDownloader(args, responses)
+            plan = downloader.build_plan()
+            self.assertCountEqual(
+                [item.url for item in plan],
+                [year + "day.tif", created_year + "data.tif"],
+            )
+
+    def test_exclude_path_skips_relative_branch(self):
         base = "https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/"
         year = base + "2026/"
         html = (
@@ -178,7 +218,8 @@ class DownloaderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             args = parse_args([
                 "--url", base, "--dest", temporary, "--suffix", ".tif",
-                "--start-year", "2026", "--delay", "0", "--jitter", "0",
+                "--start-year", "2026", "--exclude", "created",
+                "--delay", "0", "--jitter", "0",
             ])
             responses = {
                 base: FakeResponse(html.encode(), content_type="text/html", url=base),
@@ -221,14 +262,14 @@ class DownloaderTests(unittest.TestCase):
             self.assertEqual(second_path, Path(temporary) / "2026/08/02/c3g_2026.08.02.tif")
             self.assertNotEqual(first_path, second_path)
 
-    def test_leaf_url_preserves_date_directory_context(self):
+    def test_leaf_url_is_relative_to_selected_directory(self):
         base = "https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/2026/08/01/"
         url = base + "c3g_2026.08.02.tif"
         with tempfile.TemporaryDirectory() as temporary:
             downloader = FakeDownloader(self.args(base, temporary), {})
             self.assertEqual(
                 downloader.local_path(url),
-                Path(temporary) / "2026/08/01/c3g_2026.08.02.tif",
+                Path(temporary) / "c3g_2026.08.02.tif",
             )
 
     def test_suffix_filter_is_applied_during_planning(self):

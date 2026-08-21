@@ -30,7 +30,6 @@ import requests
 
 HOST = "data.chc.ucsb.edu"
 ROOTS = ("/products/", "/experimental/")
-EXCLUDED_BRANCHES = {"created"}
 DEFAULT_UA = (
     "Mozilla/5.0 (compatible; download-chc-data/1.0; polite recursive "
     "download; contact grit-ai@ucsb.edu)"
@@ -186,6 +185,16 @@ def _decoded_path_parts(path: str) -> list[str]:
             raise DownloadError(f"unsafe URL path component: {raw!r}")
         decoded.append(part)
     return decoded
+
+
+def parse_exclude_path(value: str) -> tuple[str, ...]:
+    try:
+        parts = _decoded_path_parts(value)
+    except DownloadError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    if not parts:
+        raise argparse.ArgumentTypeError("exclude path must not be empty")
+    return tuple(part.lower() for part in parts)
 
 
 def validate_url(url: str, *, base_url: str | None = None) -> str:
@@ -492,7 +501,11 @@ class Downloader:
                 relative = unquote(urlsplit(full).path)
                 target_parts = _decoded_path_parts(urlsplit(full).path)
                 relative_parts = target_parts[len(base_parts) :]
-                if entry.is_directory and relative_parts and relative_parts[0].lower() in EXCLUDED_BRANCHES:
+                if any(
+                    excluded == tuple(relative_parts[index : index + len(excluded)])
+                    for excluded in self.args.excluded_paths
+                    for index in range(len(relative_parts) - len(excluded) + 1)
+                ):
                     continue
                 cadence = infer_cadence(relative)
                 if entry.is_directory:
@@ -519,20 +532,7 @@ class Downloader:
         target_parts = _decoded_path_parts(target.path)
         if target_parts[: len(base_parts)] != base_parts:
             raise DownloadError(f"local path is outside selected URL subtree: {url}")
-        date_directory = next(
-            (
-                index
-                for index, component in enumerate(target_parts[:-1])
-                if re.fullmatch(r"(?:19|20)\d{2}", component)
-            ),
-            None,
-        )
-        if date_directory is not None:
-            # Keep yyyy/mm/dd context when a leaf URL would otherwise flatten
-            # repeated forecast filenames into the same destination directory.
-            relative = target_parts[date_directory:]
-        else:
-            relative = target_parts[len(base_parts) :]
+        relative = target_parts[len(base_parts) :]
         if not relative:
             relative = [target_parts[-1]]
         current = self.dest
@@ -670,6 +670,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="include files without a recognized date when a date filter is active",
     )
+    parser.add_argument(
+        "--exclude",
+        dest="excluded_paths",
+        action="append",
+        type=parse_exclude_path,
+        default=[],
+        help="exclude a relative directory path; repeatable (e.g. created)",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--yes", action="store_true", help="bypass the large-plan confirmation prompt")
     parser.add_argument("--overwrite", action="store_true")
@@ -688,6 +696,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         suffix.lower() if suffix.startswith(".") else f".{suffix.lower()}"
         for suffix in args.suffixes
     )
+    args.excluded_paths = tuple(args.excluded_paths)
     if args.start_year is not None and args.start_date is not None:
         parser.error("use either --start-year or --start-date, not both")
     if args.end_year is not None and args.end_date is not None:
