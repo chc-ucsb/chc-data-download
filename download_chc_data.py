@@ -136,6 +136,14 @@ def parse_size(row_text: str) -> int | None:
     return int(float(match.group("number")) * UNIT_MULTIPLIERS[match.group("unit").lower()])
 
 
+def format_bytes(value: int) -> str:
+    if value < 1024**2:
+        return f"{value:,} bytes"
+    if value < 1024**3:
+        return f"{value / 1024**2:.1f} MiB"
+    return f"{value / 1024**3:.1f} GiB"
+
+
 def parse_index(html: str, page_url: str) -> list[IndexEntry]:
     parser = LinkParser()
     parser.feed(html)
@@ -583,18 +591,21 @@ class Downloader:
         if expected is not None and written != expected:
             if temp_name:
                 Path(temp_name).unlink(missing_ok=True)
-            raise DownloadError(f"size mismatch for {item.url}: got {written}, expected {expected}")
+            raise DownloadError(
+                f"size mismatch for {item.url}: got {format_bytes(written)}, "
+                f"expected {format_bytes(expected)}"
+            )
         assert temp_name is not None
         os.replace(temp_name, path)
         self.downloaded += 1
         self.bytes_downloaded += written
-        print(f"+ {path.relative_to(self.dest)} ({written:,} bytes)")
+        print(f"+ {path.relative_to(self.dest)} ({format_bytes(written)})")
 
     def confirm(self, plan: list[PlanEntry]) -> bool:
         known_bytes = sum(item.size or 0 for item in plan)
         unknown = sum(item.size is None for item in plan)
         print(f"Planned files: {len(plan):,}")
-        print(f"Known size: {known_bytes:,} bytes" + (f" (+ {unknown:,} unknown)" if unknown else ""))
+        print(f"Known size: {format_bytes(known_bytes)}" + (f" (+ {unknown:,} unknown)" if unknown else ""))
         if self.args.dry_run:
             for item in plan:
                 print(item.url)
@@ -628,7 +639,7 @@ class Downloader:
                 print(f"! {failures[-1]}", file=sys.stderr)
         print(
             f"Done: downloaded={self.downloaded} skipped={self.skipped} "
-            f"failed={self.failed} bytes={self.bytes_downloaded:,}"
+            f"failed={self.failed} size={format_bytes(self.bytes_downloaded)}"
         )
         return 1 if failures else 0
 

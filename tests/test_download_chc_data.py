@@ -10,6 +10,7 @@ from download_chc_data import (
     DownloadError,
     extract_interval,
     extract_intervals,
+    format_bytes,
     infer_cadence,
     parse_args,
     parse_index,
@@ -64,6 +65,11 @@ class DownloaderTests(unittest.TestCase):
             "https://data.chc.ucsb.edu/products/CHIRP-v3.0/rain.nc",
         ])
         self.assertEqual(entries[1].size, 2 * 1024 * 1024)
+
+    def test_format_bytes_uses_readable_units(self):
+        self.assertEqual(format_bytes(999), "999 bytes")
+        self.assertEqual(format_bytes(1024**2), "1.0 MiB")
+        self.assertEqual(format_bytes(1024**3), "1.0 GiB")
 
     def test_url_policy_rejects_unsafe_targets(self):
         with self.assertRaises(DownloadError):
