@@ -32,8 +32,8 @@ import requests
 HOST = "data.chc.ucsb.edu"
 ROOTS = ("/products/", "/experimental/")
 DEFAULT_UA = (
-    "Mozilla/5.0 (compatible; download-chc-data/1.0; polite recursive "
-    "download; contact grit-ai@ucsb.edu)"
+    "download-chc-data/0.1.0 "
+    "(+https://github.com/chc-ucsb/chc-data-download)"
 )
 CONFIRM_FILES = 1_000
 CONFIRM_BYTES = 10_000_000_000

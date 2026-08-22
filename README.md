@@ -250,6 +250,10 @@ option omits the named branch when it exists in the selected product.
 Run `uv run download-chc-data --help` for all options, including timeout,
 retry, delay, jitter, and user-agent settings.
 
+## Contact
+
+For questions or issues, contact `wturner@ucsb.edu`.
+
 ## Development
 
 Run the checks from the repository root:
