@@ -7,20 +7,31 @@ before downloading, and publishes completed files atomically.
 The downloader is generic: the selected URL determines the product and file
 layout. It does not interpret dataset contents.
 
-## Install
+## Quick Start: CHIRPS v3 Daily TIFFs
 
-- Python 3.10 or newer
-- [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
+This walkthrough requires Python 3.10 or newer.
 
-Clone the repository and install its locked environment:
+### Step 0: Open the Repository
+
+Open a terminal. On Windows, use PowerShell. If the repository is not already
+cloned, run:
 
 ```bash
 git clone https://github.com/chc-ucsb/chc-data-download.git
 cd chc-data-download
-uv sync
 ```
 
-If `uv` is not installed, use its official installer. On macOS or Linux:
+If it is already cloned, open the terminal in that directory instead.
+
+### Step 1: Install uv
+
+Check whether `uv` is installed:
+
+```bash
+uv --version
+```
+
+If it is not installed, use the official installer. On macOS or Linux:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -32,43 +43,77 @@ In Windows PowerShell:
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-## Quick Start
+See the [official uv installation guide](https://docs.astral.sh/uv/getting-started/installation/)
+for other installation methods.
 
-Preview a selection before downloading it:
+### Step 2: Install the Project
+
+From the repository directory, run:
 
 ```bash
-uv run download-chc-data \
-  --url URL \
-  --dest ./data \
-  --suffix .tif \
-  --start-date 2026-01-01 \
-  --end-date 2026-01-10 \
-  --dry-run
+uv sync
+uv run download-chc-data --help
 ```
 
-Replace `URL` with a directory or artifact URL under the CHC service. After
-reviewing the plan, run the same command without `--dry-run`. In PowerShell,
-replace Bash line-continuation backslashes with backticks, or use one line.
+`uv sync` creates the project environment and installs the locked dependencies.
 
-For example, this selects a short interval from a verified CHIRPS v3 branch:
+### Step 3: Preview a Download
+
+This example selects daily CHIRPS v3 TIFF files from January 1 through January
+10, 2026 and prints the plan without downloading artifacts.
+
+On macOS or Linux:
 
 ```bash
 uv run download-chc-data \
   --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/2026/ \
-  --dest ./data/chirps-v3 \
   --suffix .tif \
   --start-date 2026-01-01 \
   --end-date 2026-01-10 \
+  --dest ./data/chirps-v3 \
   --dry-run
 ```
+
+In Windows PowerShell, use a backtick instead of a backslash for line
+continuation:
+
+```powershell
+uv run download-chc-data `
+  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/2026/ `
+  --suffix .tif `
+  --start-date 2026-01-01 `
+  --end-date 2026-01-10 `
+  --dest .\data\chirps-v3 `
+  --dry-run
+```
+
+Review the listed URLs and planned file count before downloading. Change the
+dates for another interval, or use `--start-year` and `--end-year` for whole
+years.
+
+### Step 4: Download the Files
+
+After reviewing the plan, run the same command without `--dry-run`.
+
+```bash
+uv run download-chc-data \
+  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/2026/ \
+  --suffix .tif \
+  --start-date 2026-01-01 \
+  --end-date 2026-01-10 \
+  --dest ./data/chirps-v3
+```
+
+The PowerShell command is the same, using backticks for continuation and
+`--dest .\data\chirps-v3`. Downloaded artifacts under `data/` are ignored by
+Git in this repository.
 
 ## Destination
 
 `--dest` is required. Relative paths are resolved from the directory where the
 command runs; absolute paths work from anywhere. Directory downloads mirror the
 selected URL subtree below the destination, while direct artifacts are written
-directly under it. Downloaded artifacts under `data/` are ignored by Git in
-this repository.
+directly under it.
 
 ## URL Selection
 
@@ -144,6 +189,42 @@ uv run download-chc-data \
   --exclude unwanted-branch \
   --exclude another-branch
 ```
+
+## Daily Forecast Update
+
+To preview the current CHIRPS-GEFS v3 daily run, use the current date for both
+date filters:
+
+In Windows PowerShell:
+
+```powershell
+$today = Get-Date -Format "yyyy-MM-dd"
+uv run download-chc-data `
+  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/ `
+  --pattern "c3g_*" `
+  --exclude created `
+  --start-date $today `
+  --end-date $today `
+  --dest .\data\chirps-gefs-v3 `
+  --dry-run
+```
+
+On macOS or Linux:
+
+```bash
+today=$(date +%F)
+uv run download-chc-data \
+  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/ \
+  --pattern 'c3g_*' \
+  --exclude created \
+  --start-date "$today" \
+  --end-date "$today" \
+  --dest ./data/chirps-gefs-v3 \
+  --dry-run
+```
+
+Review the plan, then remove `--dry-run` to download the run. The `--exclude`
+option omits the named branch when it exists in the selected product.
 
 ## Safety And Operations
 
