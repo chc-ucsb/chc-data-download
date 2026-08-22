@@ -142,7 +142,7 @@ the shell:
 uv run download-chc-data \
   --url URL \
   --dest ./data \
-  --pattern '*.tif' \
+  --pattern 'chirps*2026*.tif' \
   --dry-run
 ```
 
