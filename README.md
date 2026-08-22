@@ -1,376 +1,179 @@
 # CHC Data Downloader
 
-`download-chc-data` mirrors a selected directory or artifact from the public
-CHC data service. The URL supplies the product, version, cadence, region,
-variable, and format branch. The downloader follows only advertised Apache
-links, filters files before downloading, and publishes files atomically.
+`download-chc-data` safely mirrors a selected directory or artifact from the
+public CHC data service. It discovers directory-index links, filters the plan
+before downloading, and publishes completed files atomically.
 
-## Quick Start: CHIRPS v3 Daily TIFFs
+The downloader is generic: the selected URL determines the product and file
+layout. It does not interpret dataset contents.
 
-### Step 0: Open the repository
+## Install
 
-1. Open the repository page: <https://github.com/chc-ucsb/chc-data-download>.
-2. Select **Code**, choose **HTTPS**, and select **Copy** to copy the repository URL.
-3. Open a terminal. On Windows, open PowerShell; on macOS or Linux, open Terminal.
-4. Clone the repository and enter its directory:
+- Python 3.10 or newer
+- [`uv`](https://docs.astral.sh/uv/getting-started/installation/)
 
-   ```bash
-   git clone https://github.com/chc-ucsb/chc-data-download.git
-   cd chc-data-download
-   ```
-
-If you already cloned the repository, open a terminal in that directory instead.
-
-### Step 1: Install uv
-
-Check whether `uv` is installed:
+Clone the repository and install its locked environment:
 
 ```bash
-uv --version
+git clone https://github.com/chc-ucsb/chc-data-download.git
+cd chc-data-download
+uv sync
 ```
 
-If the command is not found, install `uv` using the official installer. On
-macOS or Linux, run:
+If `uv` is not installed, use its official installer. On macOS or Linux:
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-In Windows PowerShell, run:
+In Windows PowerShell:
 
 ```powershell
 powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
-Close and reopen the terminal after installation, then check `uv --version`
-again. See the [official uv installation guide](https://docs.astral.sh/uv/getting-started/installation/)
-for other installation methods.
+## Quick Start
 
-### Step 2: Install the project
-
-From the repository directory, run:
+Preview a selection before downloading it:
 
 ```bash
-uv sync
-uv run download-chc-data --help
+uv run download-chc-data \
+  --url URL \
+  --dest ./data \
+  --suffix .tif \
+  --start-date 2026-01-01 \
+  --end-date 2026-01-10 \
+  --dry-run
 ```
 
-`uv sync` creates the project environment and installs the locked dependencies.
+Replace `URL` with a directory or artifact URL under the CHC service. After
+reviewing the plan, run the same command without `--dry-run`. In PowerShell,
+replace Bash line-continuation backslashes with backticks, or use one line.
 
-### Step 3: Preview a CHIRPS v3 download
-
-The following example selects daily CHIRPS v3 TIFF files from January 1
-through January 10, 2026, and prints the download plan without transferring
-anything.
-
-On macOS or Linux, use the Bash form:
+For example, this selects a short interval from a verified CHIRPS v3 branch:
 
 ```bash
 uv run download-chc-data \
   --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/2026/ \
+  --dest ./data/chirps-v3 \
   --suffix .tif \
   --start-date 2026-01-01 \
   --end-date 2026-01-10 \
-  --dest ./data/chirps3-daily-tifs \
   --dry-run
 ```
 
-On Windows PowerShell, use a backtick at the end of each continued line. Do
-not use a backslash; PowerShell passes it to the program as an argument:
+## Destination
 
-```powershell
-uv run download-chc-data `
-  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/2026/ `
-  --suffix .tif `
-  --start-date 2026-01-01 `
-  --end-date 2026-01-10 `
-  --dest ./data/chirps3-daily-tifs `
-  --dry-run
-```
+`--dest` is required. Relative paths are resolved from the directory where the
+command runs; absolute paths work from anywhere. Directory downloads mirror the
+selected URL subtree below the destination, while direct artifacts are written
+directly under it. Downloaded artifacts under `data/` are ignored by Git in
+this repository.
 
-You can also put the entire PowerShell command on one line. Review the listed
-URLs and planned file count before downloading. Change the dates for a
-different interval, or use `--start-year` and `--end-year` for whole years.
+## URL Selection
 
-### Step 4: Download the files
-
-After reviewing the plan, run the same Bash command without `--dry-run`:
-
-```bash
-uv run download-chc-data \
-  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/2026/ \
-  --suffix .tif \
-  --start-date 2026-01-01 \
-  --end-date 2026-01-10 \
-  --dest ./data/chirps3-daily-tifs
-```
-
-The PowerShell form is:
-
-```powershell
-uv run download-chc-data `
-  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/2026/ `
-  --suffix .tif `
-  --start-date 2026-01-01 `
-  --end-date 2026-01-10 `
-  --dest ./data/chirps3-daily-tifs
-```
-
-Files are saved under `data/chirps3-daily-tifs`. The downloader uses one delayed
-connection, skips existing files when their sizes match, and writes completed
-files atomically. Use `--overwrite` only when an existing file must be
-replaced. The `data/` directory is ignored by Git so downloaded artifacts are
-not accidentally committed.
-
-The `--dest` path is resolved relative to the directory where the terminal
-command is run. For repeat downloads, either run the command from the repository
-root:
-
-```powershell
-cd C:\Users\wturner\chc-data-download
-uv run download-chc-data `
-  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/2026/ `
-  --suffix .tif `
-  --start-date 2026-01-01 `
-  --end-date 2026-01-10 `
-  --dest .\data\chirps3-daily-tifs
-```
-
-Or, if the terminal is already inside `data\chirps3-daily-tifs`, use
-`--dest .`. An absolute destination path also works from any directory. The
-program prints `= skip` only when the file is found at that destination, its
-size matches the server's size, and `--overwrite` was not requested.
-
-The CHIRPS v3 daily NetCDF branch is organized separately under `netcdf/byMonth/`
-and `netcdf/byYear/`. Use `byMonth/` for monthly files containing daily slices,
-or `byYear/` for larger annual files. The downloader can traverse these
-structural directories when starting from a parent URL, but choosing the
-narrowest useful URL avoids duplicate representations and unexpectedly large
-download plans.
-
-### Forecast Initialization Directories
-
-Some CHC products use nested initialization-date directories such as
-`yyyy/mm/dd/`. CHIRPS-GEFS v3 is organized this way:
-
-```text
-global/2026/08/01/c3g_2026.08.02.tif
-global/2026/08/02/c3g_2026.08.02.tif
-```
-
-The downloader mirrors every subdirectory below the selected URL in the
-destination. The repeated filename is therefore safe when both runs are
-selected from a common parent. When a date filter is active, the directory date
-is the initialization date, so selecting August 1 downloads all lead-time files
-in the August 1 run. The date in the filename is not used to select a different
-initialization run.
-
-For example, this PowerShell command previews the August 1 initialization run:
-
-```powershell
-uv run download-chc-data `
-  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/2026/08/ `
-  --suffix .tif `
-  --start-date 2026-08-01 `
-  --end-date 2026-08-01 `
-  --dest .\data\chirps-gefs-v3 `
-  --dry-run
-```
-
-Downloaded files are stored under paths such as
-`data/chirps-gefs-v3/2026/08/01/c3g_2026.08.02.tif`. Start at `global/` or a
-month-level directory when collecting multiple initialization runs so their
-date context remains visible in the output. If you select a leaf directory,
-its files are written directly under the destination because that directory is
-the selected root.
-
-The parent `global/` directory also contains a separate `created/` branch. It
-contains alternate files named like
-`data.2026.0110.created-from.2026.0110.tif`; these are not generated by this
-tool. A parent `global/` download includes both branches and stores them
-separately under `2026/...` and `created/2026/...`. To omit the alternate branch,
-exclude it explicitly with `--exclude`:
-
-```powershell
-uv run download-chc-data `
-  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/ `
-  --suffix .tif `
-  --start-date 2026-01-01 `
-  --end-date 2026-01-10 `
-  --exclude created `
-  --dest .\data\chirps-gefs `
-  --dry-run
-```
-
-Use `--exclude` with a relative directory path when a parent contains an
-unwanted branch, such as `--exclude byYear` when choosing only the monthly
-NetCDF representation. Repeat the option to exclude multiple branches. To
-download the `created/` branch by itself, select its URL directly rather than
-excluding it.
-
-### Daily Forecast Top-Off
-
-To add the newest CHIRPS-GEFS forecast each day, use the current date as both
-the start and end date. First preview the plan in Windows PowerShell:
-
-```powershell
-$today = Get-Date -Format "yyyy-MM-dd"
-uv run download-chc-data `
-  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/ `
-  --pattern "c3g_*" `
-  --exclude created `
-  --start-date $today `
-  --end-date $today `
-  --dest .\data\chirps-gefs-v3 `
-  --dry-run
-```
-
-After reviewing the plan, run the same command without `--dry-run`:
-
-```powershell
-$today = Get-Date -Format "yyyy-MM-dd"
-uv run download-chc-data `
-  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/ `
-  --pattern "c3g_*" `
-  --exclude created `
-  --start-date $today `
-  --end-date $today `
-  --dest .\data\chirps-gefs-v3
-```
-
-On macOS or Linux, use the same workflow with the shell date command:
-
-```bash
-today=$(date +%F)
-uv run download-chc-data \
-  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/ \
-  --pattern 'c3g_*' \
-  --exclude created \
-  --start-date "$today" \
-  --end-date "$today" \
-  --dest ./data/chirps-gefs-v3
-```
-
-Run these commands from the repository root, or use an absolute destination.
-The date selects the forecast initialization directory, so all lead-time files
-for that run are downloaded under `data/chirps-gefs-v3/YYYY/MM/DD/`. A persistent
-destination lets later runs skip same-size files. Schedule the command after
-the CHC daily publication time; if that date directory is not published yet,
-the command reports an error rather than selecting a different date. Use
-`--overwrite` only when intentionally refreshing an existing run.
-
-## Install
-
-```bash
-uv sync
-```
-
-## Examples
-
-Choose a URL at the narrowest useful directory and always choose a destination:
-
-The multiline examples in this section use Bash syntax. In PowerShell,
-replace each trailing `\` with a backtick, or paste the command on one line.
-
-```bash
-uv run download-chc-data \
-  --url https://data.chc.ucsb.edu/products/CHIRP-v3.0/daily/global/ \
-  --suffix .tif \
-  --start-date 2020-01-01 \
-  --end-date 2020-12-31 \
-  --dest ./data/chirp-v3-daily
-```
-
-Filter CHIRPS NetCDF files or CHIRPS-GEFS TIFFs with the same interface. For
-monthly CHIRPS NetCDF files, use the explicit `byMonth/` branch:
-
-```bash
-uv run download-chc-data \
-  --url https://data.chc.ucsb.edu/products/CHIRPS/v3.0/daily/final/sat/netcdf/byMonth/ \
-  --suffix .nc \
-  --start-year 2022 --end-year 2024 \
-  --dest ./data/chirps-netcdf
-
-uv run download-chc-data \
-  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/16_day/ \
-  --suffix .tif \
-  --start-year 2024 --end-year 2025 \
-  --dest ./data/chirps-gefs-v3
-```
-
-CHIRTS branches are selected by URL in the same way:
-
-```bash
-uv run download-chc-data \
-  --url https://data.chc.ucsb.edu/products/CHIRTS-GEFS/v2/daily/ \
-  --suffix .nc --dest ./data/chirts-gefs
-```
-
-Use `--dry-run` before downloading an unfamiliar or large selection:
-
-```bash
-uv run download-chc-data --url URL --dest ./data --suffix .nc --dry-run
-```
+- URLs must use `https://data.chc.ucsb.edu/` and remain below `/products/` or
+  `/experimental/`.
+- A directory URL is traversed through links advertised by its directory index.
+  A direct artifact URL is also supported.
+- Links outside the selected subtree or allowed CHC roots are skipped.
+- Structural directories without dates are traversed. Date-bearing directories
+  can be pruned by date filters.
+- Choose the narrowest useful URL when a service exposes multiple file
+  representations of the same data.
 
 ## Filtering
 
+### File Filters
+
 `--suffix` is repeatable and case-insensitive. It accepts endings such as
-`.nc`, `.tif`, `.bil`, `.nc.gz`, or `.zip`. Without it, all advertised files
-are eligible.
+`.nc`, `.tif`, `.bil`, `.nc.gz`, and `.zip`.
 
 Use repeatable `--pattern` options for case-insensitive filename glob matching.
-Patterns match the filename, not its parent directories. Quote wildcard
-patterns in the shell:
+Patterns match filenames, not parent directories. Quote wildcard patterns in
+the shell:
 
-```powershell
-uv run download-chc-data `
-  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/2026/01/ `
-  --pattern "c3g_*" `
-  --dest .\data\chirps-gefs-v3
-
-uv run download-chc-data `
-  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/2026/01/ `
-  --pattern "*.tif" `
-  --dest .\data\chirps-gefs-v3
-
-uv run download-chc-data `
-  --url https://data.chc.ucsb.edu/products/CHIRPS-GEFS/v3/daily/global/2026/01/ `
-  --pattern "c3g_*2026*.tif" `
-  --dest .\data\chirps-gefs-v3
+```bash
+uv run download-chc-data \
+  --url URL \
+  --dest ./data \
+  --pattern '*.tif' \
+  --dry-run
 ```
 
 Repeated patterns are alternatives. If both `--suffix` and `--pattern` are
-provided, a file must satisfy both filters.
+provided, a file must satisfy both filters. Without either option, all
+advertised files are eligible.
 
-Date filtering is cadence-aware from the URL path. The downloader recognizes
-`daily`, `pentad(s)`, `dekad(s)`, `monthly`, `2-monthly` through `6-monthly`,
-and annual/year directories. It interprets common CHC forms including:
+### Date Filters
 
-- Daily: `YYYY.MM.DD`, `YYYY-MM-DD`, `YYYYMMDD`, and `YYYY/MM/DD`
-- Pentad/dekad: `YYYY.MM.N`, with the directory cadence deciding how `N` is mapped
-- Monthly and multi-month: `YYYY.MM` or `YYYY/MM`
-- Annual: `YYYY`
+Date filters are inferred from URL paths and filenames. The downloader
+recognizes daily, pentad, dekad, monthly, multi-month, and annual/year layouts,
+including common forms such as `YYYY-MM-DD`, `YYYY.MM.DD`, `YYYYMMDD`,
+`YYYY/MM/DD`, `YYYY.MM`, `YYYY/MM`, and `YYYY`.
 
-`--start-year`/`--end-year` are inclusive convenience filters. Use
-`--start-date`/`--end-date` for exact intervals. Files without recognizable
-dates are excluded when a date filter is active; use `--include-undated` to
-retain README and documentation files.
+Use inclusive year filters:
 
-## Safety
+```bash
+uv run download-chc-data \
+  --url URL \
+  --dest ./data \
+  --start-year 2022 \
+  --end-year 2024
+```
 
-The URL must begin with `https://data.chc.ucsb.edu/` and remain below
-`/products/` or `/experimental/`. Credentials, query strings, fragments,
-off-site links, redirects outside the selected subtree, traversal, guessed
-filenames, and unsafe local path components are rejected.
+Use `--start-date` and `--end-date` for exact `YYYY-MM-DD` intervals. Do not
+combine a start year with a start date, or an end year with an end date. Date
+selection uses interval overlap for period-based products. Files without a
+recognizable date are excluded when a date filter is active; use
+`--include-undated` to retain them.
 
-The downloader uses one sequential connection with a default 0.5-second delay
-plus jitter. It retries transient failures and honors `Retry-After`. Files are
-streamed to exclusive temporary files, checked against `Content-Length` when
-available, and atomically renamed only after completion. Existing files are
-skipped when their size matches; `--overwrite` forces replacement.
+For products with nested initialization-date directories, an active date filter
+uses the directory date as the initialization date. Dates in filenames do not
+select a different initialization run.
 
-Before transferring artifacts, the tool counts selected files and parses sizes
-shown by the directory index. It prompts above 1,000 files or 10 GB, defaults
-to no, and requires `--yes` in noninteractive use. Unknown sizes also require
-confirmation. Hard limits are available with `--max-files`, `--max-bytes`, and
-`--max-depth`.
+## Exclude
+
+`--exclude` removes a relative path sequence below the selected URL. It is
+case-insensitive and repeatable:
+
+```bash
+uv run download-chc-data \
+  --url URL \
+  --dest ./data \
+  --exclude unwanted-branch \
+  --exclude another-branch
+```
+
+## Safety And Operations
+
+- `--dry-run` builds and prints the plan without downloading artifacts. It still
+  requests directory indexes needed for discovery.
+- The default delay is 0.5 seconds plus up to 0.5 seconds of jitter. Requests
+  are made sequentially, and transient request failures are retried.
+- Files stream to temporary files and are atomically renamed only after
+  completion. When the server supplies a usable `Content-Length`, a matching
+  existing file is skipped unless `--overwrite` is used. Files with a different
+  size, or files whose server size is unknown, are downloaded again.
+- Download validation is size-based when `Content-Length` is available; no
+  checksum verification is performed.
+- Plans larger than 1,000 files, larger than 10 GB of known data, or containing
+  unknown sizes require confirmation. Use `--yes` for noninteractive runs.
+- Use `--max-files`, `--max-bytes`, and `--max-depth` to limit a plan. The
+  default maximum depth is 100.
+- Per-file failures do not stop the remaining downloads. A successful run with
+  no files, including an unpublished date selection, exits normally. The
+  process exits with status 1 for per-file failures, 2 for a top-level error,
+  and 130 when interrupted.
+
+Run `uv run download-chc-data --help` for all options, including timeout,
+retry, delay, jitter, and user-agent settings.
+
+## Development
+
+Run the checks from the repository root:
+
+```bash
+uv run ruff check .
+uv run python -m unittest discover -s tests -v
+```
