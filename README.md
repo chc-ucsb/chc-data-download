@@ -7,6 +7,10 @@ before downloading, and publishes completed files atomically.
 The downloader is generic: the selected URL determines the product and file
 layout. It does not interpret dataset contents.
 
+The CHC data server is shared by many users and automatically blocks clients
+that send too many requests. Please read
+[Downloading Politely](#downloading-politely) before running large downloads.
+
 ## Quick Start: CHIRPS v3 Daily TIFFs
 
 This walkthrough requires Python 3.10 or newer.
@@ -107,6 +111,40 @@ uv run download-chc-data \
 The PowerShell command is the same, using backticks for continuation and
 `--dest .\data\chirps-v3`. Downloaded artifacts under `data/` are ignored by
 Git in this repository.
+
+## Downloading Politely
+
+The data server automatically blocks clients that send requests too quickly,
+including requests for directory listings. As a rule of thumb, keep your total
+traffic to the server at about one request per second or less, counting every
+script and machine you run. One copy of this downloader with its default
+settings stays at about that rate. To avoid being blocked:
+
+- **Run one copy at a time.** The downloader sends one request at a time.
+  Running several copies in parallel, in separate terminals, a shell loop, or
+  parallel cluster jobs, multiplies the request rate and is the most common
+  cause of a block. For several products, run them one after another.
+- **Keep the default delay.** Each request waits 0.5 seconds plus up to 0.5
+  seconds of random jitter. Do not lower `--delay` or `--jitter`, and never
+  set them to 0.
+- **Ask for only what you need.** Start from the narrowest URL that contains
+  your data, and use `--suffix`, `--pattern`, date filters, and `--exclude` so
+  the downloader does not list or fetch directories you do not need. Check the
+  plan with `--dry-run` first.
+- **Rerun instead of starting over.** Files you already have are checked with
+  a single lightweight request and skipped, and interrupted transfers are
+  retried. If a run stops, run the same command again; do not delete the
+  destination and start over.
+- **Schedule updates sensibly.** For ongoing updates, run the command once per
+  product update (for example, once a day with a date filter, as in
+  [Daily Forecast Update](#daily-forecast-update)), not in a tight loop.
+- **Use this tool instead of generic recursive download tools.** Tools such as
+  `wget -r` or download managers with many connections request pages much
+  faster than the server allows.
+
+If requests start failing with `HTTP 403` or repeated timeouts, you may have
+been blocked. Stop all downloads, wait before trying again, and contact us
+(see [Contact](#contact)) if the problem continues.
 
 ## Destination
 
