@@ -1,14 +1,20 @@
+import os
 import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
+
+import requests
 
 from download_chc_data import (
+    CURRENT_UMASK,
+    ByteLimitError,
     DateSelector,
     Downloader,
     DownloadError,
-    extract_interval,
+    PlanEntry,
     extract_intervals,
     format_bytes,
     infer_cadence,
@@ -19,12 +25,17 @@ from download_chc_data import (
 
 
 class FakeResponse:
-    def __init__(self, body=b"", *, content_type="application/octet-stream", size=None, url=None):
+    def __init__(
+        self, body=b"", *, content_type="application/octet-stream", size=None, url=None,
+        status=200, headers=None,
+    ):
         self.body = body
-        self.headers = {"Content-Type": content_type}
+        self.headers = {"Content-Type": content_type, **(headers or {})}
         if size is not None:
             self.headers["Content-Length"] = str(size)
-        self.status_code = 200
+        self.status_code = status
+        self.is_redirect = status in (301, 302, 303, 307, 308)
+        self.encoding = None
         self.url = url or "https://data.chc.ucsb.edu/products/CHIRP-v3.0/"
         self.text = body.decode("utf-8", errors="replace")
 
@@ -38,13 +49,49 @@ class FakeResponse:
         return None
 
 
+class UnreadableBodyResponse(FakeResponse):
+    """Fails if planning tries to read a whole artifact body via .text."""
+
+    @property
+    def text(self):
+        raise AssertionError("artifact body was read during planning")
+
+    @text.setter
+    def text(self, value):
+        pass
+
+
+class DroppedResponse(FakeResponse):
+    """Delivers part of the body, then loses the connection."""
+
+    def __init__(self, body, keep, **kwargs):
+        super().__init__(body, **kwargs)
+        self.keep = keep
+
+    def iter_content(self, chunk_size=1024):
+        yield self.body[: self.keep]
+        raise requests.exceptions.ChunkedEncodingError("connection broken")
+
+
+class InterruptedResponse(FakeResponse):
+    def iter_content(self, chunk_size=1024):
+        yield self.body
+        raise KeyboardInterrupt
+
+
 class FakeDownloader(Downloader):
     def __init__(self, args, responses):
         super().__init__(args)
         self.responses = responses
+        self.requests = []
 
-    def _get(self, url, *, stream=False):
-        return self.responses[url]
+    def _get(self, url, *, stream=False, method="GET", headers=None):
+        self.requests.append((method, url, headers))
+        response = self.responses[url]
+        # A list scripts successive GETs; HEAD reuses the first response's headers.
+        if isinstance(response, list):
+            return response[0] if method == "HEAD" else response.pop(0)
+        return response
 
 
 class DownloaderTests(unittest.TestCase):
@@ -83,8 +130,7 @@ class DownloaderTests(unittest.TestCase):
         self.assertTrue(validate_target("https://data.chc.ucsb.edu/products/EWX/CHIRPS/").endswith("/CHIRPS/"))
 
     def test_date_selection_handles_year_and_period_tokens(self):
-        interval = extract_interval("chirps-v2.0.1981.01.1.tif")
-        self.assertIsNotNone(interval)
+        self.assertTrue(extract_intervals("chirps-v2.0.1981.01.1.tif", None))
         self.assertTrue(DateSelector(start=date(1981, 1, 1), end=date(1981, 12, 31)).matches("1981/file.tif", "annual"))
         self.assertFalse(DateSelector(start=date(2020, 1, 1)).matches("1981/file.tif", "annual"))
         self.assertEqual(infer_cadence("products/CHIRP-v3.0/pentads/africa/"), "pentad")
@@ -103,6 +149,7 @@ class DownloaderTests(unittest.TestCase):
             item = SimpleNamespace(url=url, size=4)
             downloader.download_file(item)
             self.assertEqual((dest / "rain.nc").read_bytes(), b"rain")
+            self.assertEqual((dest / "rain.nc").stat().st_mode & 0o777, 0o666 & ~CURRENT_UMASK)
             downloader.download_file(item)
             self.assertEqual(downloader.skipped, 1)
             self.assertEqual(list(dest.glob("*.part")), [])
@@ -331,6 +378,152 @@ class DownloaderTests(unittest.TestCase):
             args.dry_run = True
             downloader = FakeDownloader(args, {})
             self.assertFalse(downloader.confirm([SimpleNamespace(url="https://data.chc.ucsb.edu/products/CHIRP-v3.0/a.tif", size=1)]))
+
+    def test_direct_artifact_is_not_read_during_planning(self):
+        url = "https://data.chc.ucsb.edu/products/CHIRP-v3.0/annual.nc"
+        with tempfile.TemporaryDirectory() as temporary:
+            response = UnreadableBodyResponse(b"\x89HDF" + b"\0" * 1024, url=url)
+            downloader = FakeDownloader(self.args(url, temporary), {url: response})
+            plan = downloader.build_plan()
+            self.assertTrue(downloader.direct_file)
+            self.assertEqual([item.url for item in plan], [url])
+
+    def test_untyped_html_index_is_still_parsed(self):
+        base = "https://data.chc.ucsb.edu/products/CHIRP-v3.0/daily"
+        html = b'<table><tr><td><a href="rain.tif">rain.tif</a></td><td>1 B</td></tr></table>'
+        with tempfile.TemporaryDirectory() as temporary:
+            response = FakeResponse(html, content_type="", url=base + "/")
+            downloader = FakeDownloader(self.args(base, temporary), {base: response})
+            plan = downloader.build_plan()
+            self.assertFalse(downloader.direct_file)
+            self.assertEqual([item.url for item in plan], [base + "/rain.tif"])
+
+    def test_max_bytes_stops_the_run(self):
+        base = "https://data.chc.ucsb.edu/products/CHIRP-v3.0/"
+        urls = [base + f"f{n}.tif" for n in range(5)]
+        with tempfile.TemporaryDirectory() as temporary:
+            args = parse_args([
+                "--url", base, "--dest", temporary, "--max-bytes", "10", "--yes",
+                "--delay", "0", "--jitter", "0",
+            ])
+            downloader = FakeDownloader(args, {url: FakeResponse(b"x" * 8, size=8, url=url) for url in urls})
+            downloader.build_plan = lambda: [PlanEntry(url, None, url, None) for url in urls]
+            with self.assertRaises(ByteLimitError):
+                downloader.run()
+            self.assertEqual([url for _, url, _ in downloader.requests], urls[:2])
+            self.assertEqual((downloader.downloaded, downloader.failed), (1, 0))
+
+    def test_interrupt_removes_partial_file(self):
+        url = "https://data.chc.ucsb.edu/products/CHIRP-v3.0/rain.nc"
+        with tempfile.TemporaryDirectory() as temporary:
+            dest = Path(temporary)
+            args = self.args("https://data.chc.ucsb.edu/products/CHIRP-v3.0/", dest)
+            downloader = FakeDownloader(args, {url: InterruptedResponse(b"ra", size=4, url=url)})
+            with self.assertRaises(KeyboardInterrupt):
+                downloader.download_file(SimpleNamespace(url=url, size=4))
+            self.assertEqual(list(dest.iterdir()), [])
+
+    def test_current_file_is_skipped_with_head_only(self):
+        url = "https://data.chc.ucsb.edu/products/CHIRP-v3.0/rain.nc"
+        with tempfile.TemporaryDirectory() as temporary:
+            dest = Path(temporary)
+            (dest / "rain.nc").write_bytes(b"rain")
+            downloader = FakeDownloader(
+                self.args("https://data.chc.ucsb.edu/products/CHIRP-v3.0/", dest),
+                {url: FakeResponse(b"rain", size=4, url=url)},
+            )
+            downloader.download_file(SimpleNamespace(url=url, size=4))
+            self.assertEqual(downloader.skipped, 1)
+            self.assertEqual([method for method, _, _ in downloader.requests], ["HEAD"])
+
+    def test_newer_server_copy_is_redownloaded_and_mtime_recorded(self):
+        url = "https://data.chc.ucsb.edu/products/CHIRP-v3.0/rain.nc"
+        server_time = "Fri, 13 Feb 2026 23:02:00 GMT"
+        server_epoch = 1771023720
+        with tempfile.TemporaryDirectory() as temporary:
+            dest = Path(temporary)
+            local = dest / "rain.nc"
+            local.write_bytes(b"old!")
+            os.utime(local, (server_epoch - 3600, server_epoch - 3600))
+            response = FakeResponse(b"new!", size=4, url=url, headers={"Last-Modified": server_time})
+            downloader = FakeDownloader(
+                self.args("https://data.chc.ucsb.edu/products/CHIRP-v3.0/", dest), {url: response}
+            )
+            downloader.download_file(SimpleNamespace(url=url, size=4))
+            self.assertEqual(local.read_bytes(), b"new!")
+            self.assertEqual(local.stat().st_mtime, server_epoch)
+            # Now equal to the server time, so the next run skips it.
+            downloader.download_file(SimpleNamespace(url=url, size=4))
+            self.assertEqual((downloader.downloaded, downloader.skipped), (1, 1))
+
+    def test_dropped_transfer_resumes_with_range(self):
+        url = "https://data.chc.ucsb.edu/products/CHIRP-v3.0/rain.nc"
+        tag = {"ETag": '"abc"'}
+        with tempfile.TemporaryDirectory() as temporary:
+            dest = Path(temporary)
+            responses = {url: [
+                DroppedResponse(b"0123456789", 4, size=10, url=url, headers=tag),
+                FakeResponse(b"456789", size=6, url=url, status=206,
+                             headers={**tag, "Content-Range": "bytes 4-9/10"}),
+            ]}
+            downloader = FakeDownloader(
+                self.args("https://data.chc.ucsb.edu/products/CHIRP-v3.0/", dest), responses
+            )
+            with mock.patch("download_chc_data.time.sleep"):
+                downloader.download_file(SimpleNamespace(url=url, size=10))
+            self.assertEqual((dest / "rain.nc").read_bytes(), b"0123456789")
+            self.assertEqual(downloader.requests[-1][2], {"Range": "bytes=4-", "If-Range": '"abc"'})
+
+    def test_dropped_transfer_restarts_when_server_sends_full_file(self):
+        url = "https://data.chc.ucsb.edu/products/CHIRP-v3.0/rain.nc"
+        tag = {"ETag": '"abc"'}
+        with tempfile.TemporaryDirectory() as temporary:
+            dest = Path(temporary)
+            responses = {url: [
+                DroppedResponse(b"0123456789", 4, size=10, url=url, headers=tag),
+                FakeResponse(b"abcdefghij", size=10, url=url, headers={"ETag": '"new"'}),
+            ]}
+            downloader = FakeDownloader(
+                self.args("https://data.chc.ucsb.edu/products/CHIRP-v3.0/", dest), responses
+            )
+            with mock.patch("download_chc_data.time.sleep"):
+                downloader.download_file(SimpleNamespace(url=url, size=10))
+            self.assertEqual((dest / "rain.nc").read_bytes(), b"abcdefghij")
+
+    def test_get_follows_redirects_and_honors_zero_retry_after(self):
+        base = "https://data.chc.ucsb.edu/products/CHIRP-v3.0/daily"
+        with tempfile.TemporaryDirectory() as temporary:
+            downloader = Downloader(self.args(base, temporary))
+            replies = [
+                FakeResponse(status=301, url=base, headers={"Location": base + "/"}),
+                FakeResponse(status=503, url=base + "/", headers={"Retry-After": "0"}),
+                FakeResponse(b"ok", url=base + "/"),
+            ]
+            with (
+                mock.patch.object(downloader.session, "request", side_effect=replies) as request,
+                mock.patch("download_chc_data.time.sleep") as sleep,
+            ):
+                response = downloader._get(base)
+            self.assertEqual(response.body, b"ok")
+            self.assertEqual(request.call_args.args, ("GET", base + "/"))
+            self.assertIn(mock.call(0.0), sleep.call_args_list)
+
+    def test_get_rejects_redirect_outside_subtree(self):
+        base = "https://data.chc.ucsb.edu/products/CHIRP-v3.0/"
+        with tempfile.TemporaryDirectory() as temporary:
+            downloader = Downloader(self.args(base, temporary))
+            reply = FakeResponse(status=302, url=base, headers={"Location": "/products/other/"})
+            with (
+                mock.patch.object(downloader.session, "request", return_value=reply),
+                self.assertRaises(DownloadError),
+            ):
+                downloader._get(base)
+
+    def test_year_ranges_cover_their_span(self):
+        selector = DateSelector(start=date(1995, 1, 1), end=date(1995, 12, 31))
+        self.assertTrue(selector.matches("/products/X/climatology/1981-2010/clim.tif", None))
+        self.assertTrue(selector.matches("/products/X/clim_1991_to_2020.nc", None))
+        self.assertFalse(selector.matches("/products/X/clim_2001-2020.nc", None))
 
 
 if __name__ == "__main__":

@@ -169,7 +169,8 @@ uv run download-chc-data \
 
 Use `--start-date` and `--end-date` for exact `YYYY-MM-DD` intervals. Do not
 combine a start year with a start date, or an end year with an end date. Date
-selection uses interval overlap for period-based products. Files without a
+selection uses interval overlap for period-based products, and year ranges such
+as `1981-2010` or `1991_to_2020` cover the whole span. Files without a
 recognizable date are excluded when a date filter is active; use
 `--include-undated` to retain them.
 
@@ -233,9 +234,14 @@ option omits the named branch when it exists in the selected product.
 - The default delay is 0.5 seconds plus up to 0.5 seconds of jitter. Requests
   are made sequentially, and transient request failures are retried.
 - Files stream to temporary files and are atomically renamed only after
-  completion. When the server supplies a usable `Content-Length`, a matching
-  existing file is skipped unless `--overwrite` is used. Files with a different
-  size, or files whose server size is unknown, are downloaded again.
+  completion. Published files get the server's `Last-Modified` time.
+- An existing file is checked with a `HEAD` request and skipped when its size
+  matches the server's `Content-Length` and it is not older than the server
+  copy, similar to `wget -N`. Files with a different size, an older time, or an
+  unknown server size are downloaded again. `--overwrite` always downloads.
+- A transfer that drops mid-file is retried up to `--max-retries` times,
+  resuming with a conditional `Range` request when the server supports it. If
+  the file changed on the server, the whole file is downloaded again.
 - Download validation is size-based when `Content-Length` is available; no
   checksum verification is performed.
 - Plans larger than 1,000 files, larger than 10 GB of known data, or containing
@@ -244,8 +250,9 @@ option omits the named branch when it exists in the selected product.
   default maximum depth is 100.
 - Per-file failures do not stop the remaining downloads. A successful run with
   no files, including an unpublished date selection, exits normally. The
-  process exits with status 1 for per-file failures, 2 for a top-level error,
-  and 130 when interrupted.
+  process exits with status 1 for per-file failures, 2 for a top-level error
+  (including reaching `--max-bytes`, which stops the run), and 130 when
+  interrupted.
 
 Run `uv run download-chc-data --help` for all options, including timeout,
 retry, delay, jitter, and user-agent settings.
