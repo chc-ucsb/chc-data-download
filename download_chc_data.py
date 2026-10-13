@@ -801,10 +801,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=[],
         help="only download filenames matching this glob; repeatable",
     )
-    parser.add_argument("--start-year", type=parse_year)
-    parser.add_argument("--end-year", type=parse_year)
-    parser.add_argument("--start-date", type=parse_date_arg)
-    parser.add_argument("--end-date", type=parse_date_arg)
+    parser.add_argument("--start-year", type=parse_year, help="first year to include (inclusive)")
+    parser.add_argument("--end-year", type=parse_year, help="last year to include (inclusive)")
+    parser.add_argument("--start-date", type=parse_date_arg, help="first date to include, YYYY-MM-DD")
+    parser.add_argument("--end-date", type=parse_date_arg, help="last date to include, YYYY-MM-DD")
     parser.add_argument(
         "--include-undated",
         action="store_true",
@@ -818,17 +818,53 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=[],
         help="exclude a relative directory path; repeatable (e.g. created)",
     )
-    parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--dry-run", action="store_true", help="list the planned files without downloading them"
+    )
     parser.add_argument("--yes", action="store_true", help="bypass the large-plan confirmation prompt")
-    parser.add_argument("--overwrite", action="store_true")
-    parser.add_argument("--max-depth", type=parse_nonnegative_int, default=100)
-    parser.add_argument("--max-files", type=parse_nonnegative_int)
-    parser.add_argument("--max-bytes", type=parse_nonnegative_int)
-    parser.add_argument("--delay", type=parse_nonnegative, default=0.5)
-    parser.add_argument("--jitter", type=parse_nonnegative, default=0.5)
-    parser.add_argument("--timeout", type=parse_positive_float, default=60.0)
-    parser.add_argument("--max-retries", type=parse_nonnegative_int, default=6)
-    parser.add_argument("--user-agent", default=DEFAULT_UA)
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="download every planned file, even when the local copy is current",
+    )
+    parser.add_argument(
+        "--max-depth",
+        type=parse_nonnegative_int,
+        default=100,
+        help="maximum directory depth below --url (default: %(default)s)",
+    )
+    parser.add_argument("--max-files", type=parse_nonnegative_int, help="stop if the plan has more files")
+    parser.add_argument(
+        "--max-bytes",
+        type=parse_nonnegative_int,
+        help="stop the run before downloading more than this many bytes",
+    )
+    parser.add_argument(
+        "--delay",
+        type=parse_nonnegative,
+        default=0.5,
+        help="seconds to wait before each request (default: %(default)s); "
+        "lowering it can get your IP blocked",
+    )
+    parser.add_argument(
+        "--jitter",
+        type=parse_nonnegative,
+        default=0.5,
+        help="extra random wait of up to this many seconds per request (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=parse_positive_float,
+        default=60.0,
+        help="seconds to wait for the server to respond (default: %(default)s)",
+    )
+    parser.add_argument(
+        "--max-retries",
+        type=parse_nonnegative_int,
+        default=6,
+        help="retries for failed requests and interrupted transfers (default: %(default)s)",
+    )
+    parser.add_argument("--user-agent", default=DEFAULT_UA, help="User-Agent header sent to the server")
     args = parser.parse_args(argv)
     if not args.url or not args.dest:
         parser.error("--url and --dest are required")
