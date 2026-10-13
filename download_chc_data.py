@@ -38,9 +38,15 @@ DEFAULT_UA = (
 CONFIRM_FILES = 1_000
 CONFIRM_BYTES = 10_000_000_000
 RETRY_STATUSES = {408, 429, 500, 502, 503, 504}
+CURRENT_UMASK = os.umask(0)
+os.umask(CURRENT_UMASK)
 
 class DownloadError(RuntimeError):
     """A user-facing download or validation failure."""
+
+
+class ByteLimitError(DownloadError):
+    """The --max-bytes limit was reached; stops the whole run."""
 
 
 @dataclass(frozen=True)
@@ -328,16 +334,19 @@ def extract_intervals(text: str, cadence: str | None) -> list[tuple[date, date]]
     if intervals:
         return intervals
 
-    for match in re.finditer(r"(?<!\d)((?:19|20)\d{2})(?!\d)", decoded):
+    # Climatology-style year ranges (1981-2010, 1991_to_2020) cover the span.
+    year = r"((?:19|20)\d{2})"
+    range_pattern = re.compile(rf"(?<!\d){year}[-_](?:to[-_])?{year}(?!\d)")
+    for match in range_pattern.finditer(decoded):
+        first, last = int(match.group(1)), int(match.group(2))
+        if first < last:
+            add((date(first, 1, 1), date(last, 12, 31)))
+    decoded = range_pattern.sub(" ", decoded)
+
+    for match in re.finditer(rf"(?<!\d){year}(?!\d)", decoded):
         value = int(match.group(1))
         add((date(value, 1, 1), date(value, 12, 31)))
     return intervals
-
-
-def extract_interval(text: str, cadence: str | None = None) -> tuple[date, date] | None:
-    """Return the first recognized interval for compatibility and diagnostics."""
-    intervals = extract_intervals(text, cadence)
-    return intervals[0] if intervals else None
 
 
 def parse_date_arg(value: str) -> date:
@@ -368,7 +377,7 @@ def parse_year(value: str) -> int:
     return result
 
 
-def parse_positive_int(value: str) -> int:
+def parse_nonnegative_int(value: str) -> int:
     result = int(value)
     if result < 0:
         raise argparse.ArgumentTypeError("must be non-negative")
@@ -411,63 +420,84 @@ class Downloader:
             except (TypeError, ValueError, OverflowError):
                 return None
 
-    def _get(self, url: str, *, stream: bool = False) -> requests.Response:
-        current = validate_url(url, base_url=self.base_url)
-        for redirect_number in range(6):
-            for attempt in range(1, self.args.max_retries + 2):
-                self._sleep()
-                try:
-                    response = self.session.get(
-                        current,
-                        stream=stream,
-                        timeout=self.args.timeout,
-                        allow_redirects=False,
-                    )
-                except requests.RequestException as exc:
-                    if attempt > self.args.max_retries:
-                        raise DownloadError(f"request failed for {current}: {exc}") from exc
-                    wait = min(60.0, 2.0**attempt) + random.uniform(0, self.args.jitter)
-                    print(f"  retrying {type(exc).__name__} in {wait:.1f}s", file=sys.stderr)
-                    time.sleep(wait)
-                    continue
+    def _backoff(self, attempt: int) -> float:
+        return min(60.0, 2.0**attempt) + random.uniform(0, self.args.jitter)
 
-                if response.is_redirect:
-                    location = response.headers.get("Location")
-                    response.close()
-                    if not location:
-                        raise DownloadError(f"redirect without Location header: {current}")
-                    current = validate_url(urljoin(current, location), base_url=self.base_url)
-                    break
-                if response.status_code in RETRY_STATUSES:
-                    if attempt > self.args.max_retries:
-                        response.close()
-                        raise DownloadError(f"HTTP {response.status_code} for {current}")
-                    wait = self._retry_after(response) or min(60.0, 2.0**attempt)
-                    response.close()
-                    print(f"  HTTP {response.status_code}; retrying in {wait:.1f}s", file=sys.stderr)
-                    time.sleep(wait)
-                    continue
+    def _send(
+        self, method: str, url: str, *, stream: bool, headers: dict[str, str] | None
+    ) -> requests.Response:
+        """Send one request, retrying transient failures. Redirects are returned."""
+        for attempt in range(1, self.args.max_retries + 2):
+            self._sleep()
+            try:
+                response = self.session.request(
+                    method,
+                    url,
+                    stream=stream,
+                    headers=headers,
+                    timeout=self.args.timeout,
+                    allow_redirects=False,
+                )
+            except requests.RequestException as exc:
+                if attempt > self.args.max_retries:
+                    raise DownloadError(f"request failed for {url}: {exc}") from exc
+                wait = self._backoff(attempt)
+                print(f"  retrying {type(exc).__name__} in {wait:.1f}s", file=sys.stderr)
+                time.sleep(wait)
+                continue
+            if response.status_code in RETRY_STATUSES:
+                response.close()
+                if attempt > self.args.max_retries:
+                    raise DownloadError(f"HTTP {response.status_code} for {url}")
+                wait = self._retry_after(response)
+                if wait is None:
+                    wait = self._backoff(attempt)
+                print(f"  HTTP {response.status_code}; retrying in {wait:.1f}s", file=sys.stderr)
+                time.sleep(wait)
+                continue
+            if not response.is_redirect:
                 try:
                     response.raise_for_status()
                 except requests.HTTPError as exc:
                     response.close()
-                    raise DownloadError(f"HTTP error for {current}: {exc}") from exc
+                    raise DownloadError(f"HTTP error for {url}: {exc}") from exc
+            return response
+        raise AssertionError("unreachable: the final attempt returns or raises")
+
+    def _get(
+        self,
+        url: str,
+        *,
+        stream: bool = False,
+        method: str = "GET",
+        headers: dict[str, str] | None = None,
+    ) -> requests.Response:
+        current = validate_url(url, base_url=self.base_url)
+        for _ in range(6):
+            response = self._send(method, current, stream=stream, headers=headers)
+            if not response.is_redirect:
                 return response
-            else:
-                continue
-            # A validated redirect restarts the request loop at the new URL.
-            continue
+            location = response.headers.get("Location")
+            response.close()
+            if not location:
+                raise DownloadError(f"redirect without Location header: {current}")
+            current = validate_url(urljoin(current, location), base_url=self.base_url)
         raise DownloadError(f"too many redirects for {url}")
 
     def _directory_entries(self, url: str) -> list[IndexEntry]:
-        response = self._get(url)
+        # Stream so a direct artifact URL is identified from its first chunk
+        # instead of being read into memory before the real download.
+        response = self._get(url, stream=True)
         try:
-            content_type = response.headers.get("Content-Type", "")
-            if "html" not in content_type.lower() and response.text[:100].lstrip().startswith("<"):
-                content_type = "text/html"
-            if "html" not in content_type.lower():
-                raise DownloadError(f"expected an HTML directory index at {url}")
-            return parse_index(response.text, response.url)
+            if "html" in response.headers.get("Content-Type", "").lower():
+                text = response.text
+            else:
+                chunks = response.iter_content(chunk_size=64 * 1024)
+                head = next(chunks, b"")
+                if not head.lstrip().startswith(b"<"):
+                    raise DownloadError(f"expected an HTML directory index at {url}")
+                text = (head + b"".join(chunks)).decode(response.encoding or "utf-8", errors="replace")
+            return parse_index(text, response.url)
         finally:
             response.close()
 
@@ -557,48 +587,130 @@ class Downloader:
             raise DownloadError(f"refusing symlinked destination file: {path}")
         return path
 
-    def _expected_size(self, response: requests.Response) -> int | None:
+    @staticmethod
+    def _expected_size(response: requests.Response) -> int | None:
         value = response.headers.get("Content-Length")
         return int(value) if value and value.isdigit() else None
 
+    @staticmethod
+    def _last_modified(response: requests.Response) -> float | None:
+        value = response.headers.get("Last-Modified")
+        if not value:
+            return None
+        try:
+            return parsedate_to_datetime(value).timestamp()
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    @staticmethod
+    def _validator(response: requests.Response) -> str | None:
+        """Return a strong validator for If-Range, or None if resuming is unsafe."""
+        etag = response.headers.get("ETag")
+        if etag and not etag.startswith("W/"):
+            return etag
+        return response.headers.get("Last-Modified")
+
+    @staticmethod
+    def _range_start(response: requests.Response) -> int | None:
+        match = re.match(r"bytes (\d+)-", response.headers.get("Content-Range", ""))
+        return int(match.group(1)) if match else None
+
+    def _is_current(self, path: Path, response: requests.Response) -> bool:
+        """Like wget -N: same size and not older than the server copy."""
+        expected = self._expected_size(response)
+        if self.args.overwrite or expected is None or not path.is_file():
+            return False
+        stat = path.stat()
+        if stat.st_size != expected:
+            return False
+        modified = self._last_modified(response)
+        return modified is None or stat.st_mtime >= modified
+
+    def _skip(self, path: Path) -> None:
+        self.skipped += 1
+        print(f"= skip {path.relative_to(self.dest)}")
+
     def download_file(self, item: PlanEntry, base_url: str | None = None) -> None:
         path = self.local_path(item.url, base_url)
+        if not self.args.overwrite and path.is_file():
+            # HEAD avoids starting (and aborting) a full transfer for a file
+            # that is already current. A failed HEAD falls back to the GET check.
+            try:
+                head = self._get(item.url, method="HEAD")
+            except DownloadError:
+                pass
+            else:
+                head.close()
+                if self._is_current(path, head):
+                    self._skip(path)
+                    return
+
         response = self._get(item.url, stream=True)
-        expected = self._expected_size(response)
-        if (
-            expected is not None
-            and path.exists()
-            and path.is_file()
-            and not self.args.overwrite
-            and path.stat().st_size == expected
-        ):
+        if self._is_current(path, response):
             response.close()
-            self.skipped += 1
-            print(f"= skip {path.relative_to(self.dest)}")
+            self._skip(path)
             return
+        expected = self._expected_size(response)
+        modified = self._last_modified(response)
+        validator = self._validator(response)
         if (
             expected is not None
             and self.args.max_bytes is not None
             and self.bytes_downloaded + expected > self.args.max_bytes
         ):
             response.close()
-            raise DownloadError("download would exceed --max-bytes")
+            raise ByteLimitError("download would exceed --max-bytes")
 
         path.parent.mkdir(parents=True, exist_ok=True)
         temp_name: str | None = None
         written = 0
+        interruptions = 0
         try:
             with tempfile.NamedTemporaryFile(
                 mode="wb", prefix=f".{path.name}.", suffix=".part", dir=path.parent, delete=False
             ) as output:
                 temp_name = output.name
-                for chunk in response.iter_content(chunk_size=1024 * 1024):
-                    if chunk:
-                        written += len(chunk)
-                        if self.args.max_bytes is not None and self.bytes_downloaded + written > self.args.max_bytes:
-                            raise DownloadError("download exceeded --max-bytes")
-                        output.write(chunk)
-        except Exception:
+                while True:
+                    try:
+                        for chunk in response.iter_content(chunk_size=1024 * 1024):
+                            if chunk:
+                                written += len(chunk)
+                                if (
+                                    self.args.max_bytes is not None
+                                    and self.bytes_downloaded + written > self.args.max_bytes
+                                ):
+                                    raise ByteLimitError("download exceeded --max-bytes")
+                                output.write(chunk)
+                        break
+                    except (requests.ConnectionError, requests.exceptions.ChunkedEncodingError) as exc:
+                        response.close()
+                        interruptions += 1
+                        if interruptions > self.args.max_retries:
+                            raise DownloadError(f"transfer failed for {item.url}: {exc}") from exc
+                        wait = self._backoff(interruptions)
+                        print(
+                            f"  {type(exc).__name__} after {format_bytes(written)}; "
+                            f"retrying in {wait:.1f}s",
+                            file=sys.stderr,
+                        )
+                        time.sleep(wait)
+                    # Resume with a conditional Range request. If-Range makes the
+                    # server send the whole file instead if it changed meanwhile.
+                    headers = None
+                    if written and validator:
+                        headers = {"Range": f"bytes={written}-", "If-Range": validator}
+                    response = self._get(item.url, stream=True, headers=headers)
+                    if headers and response.status_code == 206:
+                        if self._range_start(response) != written:
+                            raise DownloadError(f"server resumed {item.url} at the wrong offset")
+                    else:
+                        output.seek(0)
+                        output.truncate()
+                        written = 0
+                        expected = self._expected_size(response)
+                        modified = self._last_modified(response)
+                        validator = self._validator(response)
+        except BaseException:
             if temp_name:
                 Path(temp_name).unlink(missing_ok=True)
             raise
@@ -612,7 +724,12 @@ class Downloader:
                 f"expected {format_bytes(expected)}"
             )
         assert temp_name is not None
+        # NamedTemporaryFile is always 0600; publish with normal umask permissions.
+        os.chmod(temp_name, 0o666 & ~CURRENT_UMASK)
         os.replace(temp_name, path)
+        if modified is not None:
+            # Record the server time so later runs can tell if the file changed.
+            os.utime(path, (modified, modified))
         self.downloaded += 1
         self.bytes_downloaded += written
         print(f"+ {path.relative_to(self.dest)} ({format_bytes(written)})")
@@ -649,15 +766,21 @@ class Downloader:
         for item in plan:
             try:
                 self.download_file(item, direct_base)
+            except ByteLimitError:
+                self._print_summary()
+                raise
             except (DownloadError, OSError) as exc:
                 self.failed += 1
                 failures.append(f"{item.url}: {exc}")
                 print(f"! {failures[-1]}", file=sys.stderr)
+        self._print_summary()
+        return 1 if failures else 0
+
+    def _print_summary(self) -> None:
         print(
             f"Done: downloaded={self.downloaded} skipped={self.skipped} "
             f"failed={self.failed} size={format_bytes(self.bytes_downloaded)}"
         )
-        return 1 if failures else 0
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -698,13 +821,13 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--yes", action="store_true", help="bypass the large-plan confirmation prompt")
     parser.add_argument("--overwrite", action="store_true")
-    parser.add_argument("--max-depth", type=parse_positive_int, default=100)
-    parser.add_argument("--max-files", type=parse_positive_int)
-    parser.add_argument("--max-bytes", type=parse_positive_int)
+    parser.add_argument("--max-depth", type=parse_nonnegative_int, default=100)
+    parser.add_argument("--max-files", type=parse_nonnegative_int)
+    parser.add_argument("--max-bytes", type=parse_nonnegative_int)
     parser.add_argument("--delay", type=parse_nonnegative, default=0.5)
     parser.add_argument("--jitter", type=parse_nonnegative, default=0.5)
     parser.add_argument("--timeout", type=parse_positive_float, default=60.0)
-    parser.add_argument("--max-retries", type=parse_positive_int, default=6)
+    parser.add_argument("--max-retries", type=parse_nonnegative_int, default=6)
     parser.add_argument("--user-agent", default=DEFAULT_UA)
     args = parser.parse_args(argv)
     if not args.url or not args.dest:
