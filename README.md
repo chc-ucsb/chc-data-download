@@ -114,11 +114,19 @@ Git in this repository.
 
 ## Downloading Politely
 
-The data server automatically blocks clients that send requests too quickly,
-including requests for directory listings. As a rule of thumb, keep your total
-traffic to the server at about one request per second or less, counting every
-script and machine you run. One copy of this downloader with its default
-settings stays at about that rate. To avoid being blocked:
+The data server enforces two limits for each IP address:
+
+- **Request rate.** Clients that keep sending more than about two requests per
+  second, including requests for directory listings, are blocked automatically
+  for several hours.
+- **Simultaneous connections.** More than 20 open connections at once get
+  `HTTP 429 Too Many Requests` errors.
+
+As a rule of thumb, keep your total traffic at about one request per second or
+less. The limits apply to your public IP address, so they count every script
+and machine you run, and anyone else sharing your network's address. One copy
+of this downloader with its default settings uses a single connection and
+stays at about one request per second. To avoid being blocked:
 
 - **Run one copy at a time.** The downloader sends one request at a time.
   Running several copies in parallel, in separate terminals, a shell loop, or
@@ -142,9 +150,12 @@ settings stays at about that rate. To avoid being blocked:
   `wget -r` or download managers with many connections request pages much
   faster than the server allows.
 
-If requests start failing with `HTTP 403` or repeated timeouts, you may have
-been blocked. Stop all downloads, wait before trying again, and contact us
-(see [Contact](#contact)) if the problem continues.
+If you see `HTTP 429` messages, too many connections are open from your
+address. The downloader waits and retries automatically, but stop any other
+downloads running at the same time. If requests start failing with `HTTP 403`
+or repeated timeouts, you may have been blocked. Stop all downloads, wait a few
+hours before trying again, and contact us (see [Contact](#contact)) if the
+problem continues.
 
 ## Destination
 
