@@ -280,6 +280,24 @@ uv run download-chc-data \
 Review the plan, then remove `--dry-run` to download the run. The `--exclude`
 option omits the named branch when it exists in the selected product.
 
+## Example: Daily Update Script
+
+[`examples/update_chirps.sh`](examples/update_chirps.sh) keeps a local copy
+of several CHIRPS v3 and CHIRPS3-GEFS products current:
+
+- the newest preliminary pentads
+- the daily NetCDFs
+- the current-year monthly and pentad NetCDFs
+- the daily CHIRPS3-GEFS forecast
+
+It fetches the products one after another and stops at the first error. Set
+the User-Agent and data folder at the top, then run it once a day from the
+repository folder:
+
+```bash
+bash examples/update_chirps.sh
+```
+
 ## Safety And Operations
 
 - `--dry-run` builds and prints the plan without downloading artifacts. It still
