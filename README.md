@@ -150,12 +150,16 @@ stays at about one request per second. To avoid being blocked:
   `wget -r` or download managers with many connections request pages much
   faster than the server allows.
 
-If you see `HTTP 429` messages, too many connections are open from your
-address. The downloader waits and retries automatically, but stop any other
-downloads running at the same time. If requests start failing with `HTTP 403`
-or repeated timeouts, you may have been blocked. Stop all downloads, wait a few
-hours before trying again, and contact us (see [Contact](#contact)) if the
-problem continues.
+`HTTP 429` means the server is limiting your address. It can mean too many
+open connections, or that your address has been blocked; a block may show a
+message such as "Automated bulk download detected". The downloader retries a
+brief 429 a few times, but it stops the run if the 429 continues or the server
+reports a block, so it does not add to the traffic. Blocks can also appear as
+`HTTP 403` or repeated timeouts.
+
+If this happens, stop all downloads from your address, including other people's
+on the same network, and wait a few hours before trying again. Contact us (see
+[Contact](#contact)) if the problem continues.
 
 ## Destination
 
@@ -300,8 +304,8 @@ option omits the named branch when it exists in the selected product.
 - Per-file failures do not stop the remaining downloads. A successful run with
   no files, including an unpublished date selection, exits normally. The
   process exits with status 1 for per-file failures, 2 for a top-level error
-  (including reaching `--max-bytes`, which stops the run), and 130 when
-  interrupted.
+  (including reaching `--max-bytes` or a server block, which stop the run), and
+  130 when interrupted.
 
 Run `uv run download-chc-data --help` for all options, including timeout,
 retry, delay, jitter, and user-agent settings.

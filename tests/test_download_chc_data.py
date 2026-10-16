@@ -15,6 +15,7 @@ from download_chc_data import (
     Downloader,
     DownloadError,
     PlanEntry,
+    ServerRefusedError,
     extract_intervals,
     format_bytes,
     infer_cadence,
@@ -524,6 +525,60 @@ class DownloaderTests(unittest.TestCase):
         self.assertTrue(selector.matches("/products/X/climatology/1981-2010/clim.tif", None))
         self.assertTrue(selector.matches("/products/X/clim_1991_to_2020.nc", None))
         self.assertFalse(selector.matches("/products/X/clim_2001-2020.nc", None))
+
+    def test_block_message_stops_without_retrying(self):
+        base = "https://data.chc.ucsb.edu/products/CHIRP-v3.0/"
+        with tempfile.TemporaryDirectory() as temporary:
+            downloader = Downloader(self.args(base, temporary))
+            reply = FakeResponse(
+                b"<h1>Automated bulk download detected. Contact CHC for archive access.</h1>",
+                status=429, url=base,
+            )
+            with (
+                mock.patch.object(downloader.session, "request", return_value=reply) as request,
+                self.assertRaises(ServerRefusedError) as raised,
+            ):
+                downloader._get(base)
+            self.assertEqual(request.call_count, 1)
+            self.assertIn("Automated bulk download detected", str(raised.exception))
+
+    def test_persistent_429_stops_after_retries(self):
+        base = "https://data.chc.ucsb.edu/products/CHIRP-v3.0/"
+        with tempfile.TemporaryDirectory() as temporary:
+            args = parse_args([
+                "--url", base, "--dest", temporary, "--max-retries", "2",
+                "--delay", "0", "--jitter", "0",
+            ])
+            downloader = Downloader(args)
+            with (
+                mock.patch.object(
+                    downloader.session, "request",
+                    side_effect=lambda *a, **k: FakeResponse(status=429, url=base),
+                ) as request,
+                mock.patch("download_chc_data.time.sleep"),
+                self.assertRaises(ServerRefusedError),
+            ):
+                downloader._get(base)
+            self.assertEqual(request.call_count, 3)
+
+    def test_server_refusal_stops_the_run(self):
+        base = "https://data.chc.ucsb.edu/products/CHIRP-v3.0/"
+        urls = [base + f"f{n}.tif" for n in range(3)]
+        with tempfile.TemporaryDirectory() as temporary:
+            downloader = FakeDownloader(self.args(base, temporary), {})
+            downloader.build_plan = lambda: [PlanEntry(url, None, url, None) for url in urls]
+            downloader.args.yes = True
+            requested = []
+
+            def refuse(url, **kwargs):
+                requested.append(url)
+                raise ServerRefusedError("blocked")
+
+            downloader._get = refuse
+            with self.assertRaises(ServerRefusedError):
+                downloader.run()
+            self.assertEqual(requested, urls[:1])
+            self.assertEqual(downloader.failed, 0)
 
 
 if __name__ == "__main__":

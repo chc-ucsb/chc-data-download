@@ -49,6 +49,10 @@ class ByteLimitError(DownloadError):
     """The --max-bytes limit was reached; stops the whole run."""
 
 
+class ServerRefusedError(DownloadError):
+    """The server is rate limiting or blocking this client; stops the whole run."""
+
+
 @dataclass(frozen=True)
 class IndexEntry:
     url: str
@@ -420,6 +424,16 @@ class Downloader:
             except (TypeError, ValueError, OverflowError):
                 return None
 
+    @staticmethod
+    def _error_text(response: requests.Response) -> str:
+        """Return a short plain-text version of an error response body."""
+        try:
+            text = response.text
+        except (requests.RequestException, UnicodeDecodeError):
+            return ""
+        text = re.sub(r"<[^>]+>", " ", text[:2000])
+        return " ".join(text.split())[:200]
+
     def _backoff(self, attempt: int) -> float:
         return min(60.0, 2.0**attempt) + random.uniform(0, self.args.jitter)
 
@@ -445,6 +459,17 @@ class Downloader:
                 print(f"  retrying {type(exc).__name__} in {wait:.1f}s", file=sys.stderr)
                 time.sleep(wait)
                 continue
+            if response.status_code == 429:
+                message = self._error_text(response)
+                # Retrying a block only adds to the traffic that caused it.
+                if "bulk download" in message.lower() or attempt > self.args.max_retries:
+                    response.close()
+                    raise ServerRefusedError(
+                        f"HTTP 429 for {url}: the server is limiting or blocking requests "
+                        "from your address. Stop other downloads from this address and "
+                        "wait before trying again; see 'Downloading Politely' in the README."
+                        + (f" Server message: {message}" if message else "")
+                    )
             if response.status_code in RETRY_STATUSES:
                 response.close()
                 if attempt > self.args.max_retries:
@@ -766,7 +791,7 @@ class Downloader:
         for item in plan:
             try:
                 self.download_file(item, direct_base)
-            except ByteLimitError:
+            except (ByteLimitError, ServerRefusedError):
                 self._print_summary()
                 raise
             except (DownloadError, OSError) as exc:
