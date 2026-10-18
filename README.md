@@ -298,6 +298,13 @@ repository folder:
 bash examples/update_chirps.sh
 ```
 
+[`examples/update_chirps_daily.sh`](examples/update_chirps_daily.sh) keeps
+the CHIRPS v3 daily preliminary and final GeoTIFFs current. Run it once a day;
+it only contacts the server on the days new files are usually published
+(prelim a few days after each pentad ends, final on the 12th-18th of the
+following month), so it does not repeatedly request files that do not exist
+yet.
+
 ## Safety And Operations
 
 - `--dry-run` builds and prints the plan without downloading artifacts. It still
